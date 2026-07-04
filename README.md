@@ -50,8 +50,8 @@ En tu Worker (`tapy`) → Settings → Environment variables → agregá
 ### 4. Subir estos archivos al repositorio
 Reemplazá todo el contenido del repo por esta versión (borrá la
 carpeta `functions/` si seguía en GitHub, agregá `src/index.js`).
-Hacé commit y push — esto dispara un nuevo build automático.
-
+Hacé commit y push — esto dispara un nuevo build automático.dfsfsdf
+   
 ### 5. Confirmar el binding de D1
 En el Worker → Settings → Bindings (o Variables) → confirmá que exista
 un binding de tipo D1 llamado `DB` apuntando a `nfc-negocio-db`. Si no
