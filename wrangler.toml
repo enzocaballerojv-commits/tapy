@@ -9,4 +9,4 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "nfc-negocio-db"
-database_id = "PEGAR_AQUI_EL_ID_QUE_TE_DA_CLOUDFLARE"
+database_id = "4d264af6-3b55-4fd1-a869-d2b4dbbca455"
