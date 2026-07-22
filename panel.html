@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tapy — Inventario</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root{
+    --navy:#0d2f6e;
+    --navy-deep:#081f4d;
+    --orange:#e8622c;
+    --paper:#f5f7fb;
+    --white:#ffffff;
+    --line:#dfe6f2;
+    --ink:#16233f;
+    --muted:#64748b;
+    --green:#1a9e6b;
+    --red:#d63b3b;
+    --amber:#c9820a;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Segoe UI',Arial,sans-serif;background:var(--paper);color:var(--ink);}
+
+  /* LOGIN */
+  #loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--navy);}
+  .login-box{background:white;padding:40px 36px;border-radius:16px;width:320px;box-shadow:0 20px 60px rgba(0,0,0,.3);}
+  .login-box h1{margin:0 0 4px;font-size:22px;color:var(--navy);}
+  .login-box p{margin:0 0 22px;color:var(--muted);font-size:13.5px;}
+  .login-box input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:14px;margin-bottom:12px;}
+  .login-box button{width:100%;padding:11px;border:none;border-radius:9px;background:var(--orange);color:white;font-weight:700;font-size:14px;cursor:pointer;}
+  .login-error{color:var(--red);font-size:12.5px;margin:-4px 0 10px;min-height:14px;}
+
+  /* APP SHELL */
+  #app{display:none;min-height:100vh;}
+  .topbar{background:var(--navy);color:white;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10;}
+  .brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:18px;}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--orange);}
+  .topbar button.logout{background:transparent;border:1px solid rgba(255,255,255,.35);color:white;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:13px;}
+
+  .content{padding:24px;max-width:1200px;margin:0 auto;}
+  .row-between{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;}
+  h2{font-size:19px;color:var(--navy);margin:0;}
+  .subtitle{color:var(--muted);font-size:13px;margin-top:2px;}
+
+  .btn{padding:9px 16px;border-radius:9px;border:none;font-weight:700;font-size:13.5px;cursor:pointer;}
+  .btn-primary{background:var(--orange);color:white;}
+  .btn-primary:hover{filter:brightness(1.05);}
+  .btn-secondary{background:white;color:var(--navy);border:1px solid var(--line);}
+  .btn-secondary:hover{background:var(--paper);}
+  .btn-danger{background:#fdecec;color:var(--red);border:1px solid #f3c6c1;}
+  .btn-danger:hover{background:#fbdada;}
+  .btn-sm{padding:6px 11px;font-size:12px;border-radius:7px;}
+  .btn:disabled{opacity:.45;cursor:not-allowed;}
+
+  .stat-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px;}
+  .stat-card{background:white;border:1px solid var(--line);border-radius:12px;padding:14px 16px;}
+  .stat-card .num{font-size:24px;font-weight:800;color:var(--navy);}
+  .stat-card .lbl{font-size:12px;color:var(--muted);margin-top:2px;}
+
+  .filter-bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center;}
+  .filter-bar select, .filter-bar input[type=text]{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:white;}
+  .filter-bar input[type=text]{flex:1;min-width:200px;}
+
+  .table-wrap{background:white;border:1px solid var(--line);border-radius:12px;overflow:hidden;overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th{text-align:left;padding:10px 14px;background:var(--paper);color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--line);white-space:nowrap;}
+  td{padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  tr:last-child td{border-bottom:none;}
+  tr:hover td{background:#fafbfe;}
+  .num-cell{font-weight:800;color:var(--navy);}
+  .mono{font-family:'Courier New',monospace;font-size:12.5px;color:var(--muted);}
+
+  .badge{padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;display:inline-block;}
+  .badge-sin_asignar{background:#fff2e0;color:var(--amber);}
+  .badge-activo{background:#e4f7ee;color:var(--green);}
+  .badge-suspendido{background:#fdecec;color:var(--red);}
+
+  .actions-cell{display:flex;gap:6px;flex-wrap:wrap;}
+  .empty-state{padding:50px 20px;text-align:center;color:var(--muted);}
+  .empty-state .big{font-size:15px;color:var(--ink);font-weight:700;margin-bottom:4px;}
+  .empresa-name{font-weight:700;}
+  .contacto-line{font-size:12px;color:var(--muted);}
+  .stock-dash{color:#94a3b8;}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(8,20,50,.55);z-index:100;align-items:center;justify-content:center;padding:20px;}
+  .modal-overlay.open{display:flex;}
+  .modal{background:white;border-radius:16px;padding:26px;width:100%;max-width:440px;max-height:90vh;overflow-y:auto;}
+  .modal h3{margin:0 0 4px;color:var(--navy);font-size:17px;}
+  .modal .modal-sub{color:var(--muted);font-size:12.5px;margin-bottom:18px;}
+  .field{margin-bottom:13px;}
+  .field label{display:block;font-size:12.5px;font-weight:700;color:var(--ink);margin-bottom:5px;}
+  .field input, .field select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;font-family:inherit;}
+  .field-hint{font-size:11px;color:var(--muted);margin-top:4px;}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;}
+  .radio-toggle{display:flex;gap:8px;margin-bottom:14px;}
+  .radio-toggle label{flex:1;text-align:center;padding:9px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;color:var(--muted);}
+  .radio-toggle input{display:none;}
+  .radio-toggle label:has(input:checked){background:var(--navy);color:white;border-color:var(--navy);}
+
+  #qrModalCanvas{display:flex;justify-content:center;padding:16px 0;}
+  .qr-link{word-break:break-all;font-size:12px;color:var(--muted);text-align:center;margin-top:8px;font-family:monospace;}
+
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--navy);color:white;padding:12px 20px;border-radius:10px;font-size:13.5px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.2);display:none;z-index:200;}
+  .toast.show{display:block;}
+  .toast.error{background:var(--red);}
+
+  @media(max-width:640px){
+    .content{padding:14px;}
+    table{font-size:12px;}
+    th,td{padding:8px 8px;}
+  }
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-box">
+    <h1>Panel Tapy</h1>
+    <p>Ingresá tu contraseña para continuar</p>
+    <input type="password" id="loginPassword" placeholder="Contraseña" onkeydown="if(event.key==='Enter')doLogin()">
+    <div class="login-error" id="loginError"></div>
+    <button onclick="doLogin()">Entrar</button>
+  </div>
+</div>
+
+<div id="app">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span>Tapy — Inventario</div>
+    <button class="logout" onclick="logout()">Salir</button>
+  </div>
+
+  <div class="content">
+    <div class="row-between">
+      <div>
+        <h2>Inventario de chips NFC</h2>
+        <div class="subtitle">Stock, a qué empresa se vendió cada uno, y su contacto</div>
+      </div>
+      <button class="btn btn-primary" onclick="openLoteModal()">+ Crear lote nuevo</button>
+    </div>
+
+    <div class="stat-strip" id="statStrip"></div>
+
+    <div class="filter-bar">
+      <select id="filterLote" onchange="loadChips()"><option value="">Todos los lotes</option></select>
+      <select id="filterStatus" onchange="loadChips()">
+        <option value="">Todos los estados</option>
+        <option value="sin_asignar">Sin asignar</option>
+        <option value="activo">Activo</option>
+      </select>
+      <input type="text" id="filterSearch" placeholder="Buscar por número, empresa o contacto..." oninput="renderChipsTable()">
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>N°</th><th>Slug</th><th>Estado</th><th>Empresa</th><th>Contacto</th><th>WhatsApp</th><th>QR</th><th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="chipsTableBody"></tbody>
+      </table>
+      <div class="empty-state" id="chipsEmpty" style="display:none;">
+        <div class="big">No hay chips que coincidan</div>
+        Probá cambiar los filtros o creá un lote nuevo.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: crear lote -->
+<div class="modal-overlay" id="modalLote">
+  <div class="modal">
+    <h3>Crear lote nuevo</h3>
+    <div class="modal-sub">Genera slugs únicos para nuevos chips NFC, listos para grabar y para exportar sus QR.</div>
+    <div class="field"><label>Nombre del lote</label><input type="text" id="loteNombre" placeholder="Ej: Lote Agosto 2026"></div>
+    <div class="field"><label>Cantidad de chips</label><input type="number" id="loteCantidad" min="1" max="500" placeholder="Ej: 100"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modalLote')">Cancelar</button>
+      <button class="btn btn-primary" onclick="submitLote()">Crear lote</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: asignar / editar chip -->
+<div class="modal-overlay" id="modalAsignar">
+  <div class="modal">
+    <h3>Asignar chip <span id="asignarNumero"></span></h3>
+    <div class="modal-sub">Conectá esta placa a un negocio real, con su contacto para remarketing.</div>
+
+    <div class="radio-toggle">
+      <label><input type="radio" name="clienteMode" value="existente" checked onchange="toggleClienteMode()"><span>Empresa existente</span></label>
+      <label><input type="radio" name="clienteMode" value="nuevo" onchange="toggleClienteMode()"><span>Empresa nueva</span></label>
+    </div>
+
+    <div id="clienteExistenteBox" class="field">
+      <label>Elegí la empresa</label>
+      <select id="asignarClientId"></select>
+    </div>
+
+    <div id="clienteNuevoBox" style="display:none;">
+      <div class="field"><label>Nombre de la empresa</label><input type="text" id="nuevoClienteNombre" placeholder="Ej: Restaurante La Terraza"></div>
+      <div class="field"><label>Rubro</label><input type="text" id="nuevoClienteRubro" placeholder="Ej: gastronomía, peluquería..."></div>
+      <div class="field"><label>Nombre del contacto</label><input type="text" id="nuevoClienteContacto" placeholder="Ej: María González (dueña)"></div>
+      <div class="field"><label>WhatsApp del contacto</label><input type="text" id="nuevoClienteWhatsapp" placeholder="Ej: 0981123456"></div>
+    </div>
+
+    <div class="field">
+      <label>Link de destino (a dónde redirige el tap/QR)</label>
+      <input type="text" id="asignarDestino" placeholder="Link de reseñas de Google, WhatsApp, etc.">
+    </div>
+    <div class="field">
+      <label>Etiqueta interna (opcional)</label>
+      <input type="text" id="asignarLabel" placeholder="Ej: Mostrador principal">
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modalAsignar')">Cancelar</button>
+      <button class="btn btn-primary" onclick="submitAsignar()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: ver QR -->
+<div class="modal-overlay" id="modalQr">
+  <div class="modal" style="max-width:320px;text-align:center;">
+    <h3 id="qrModalTitle">QR</h3>
+    <div id="qrModalCanvas"></div>
+    <div class="qr-link" id="qrModalLink"></div>
+    <div class="modal-actions" style="justify-content:center;">
+      <button class="btn btn-secondary" onclick="closeModal('modalQr')">Cerrar</button>
+      <button class="btn btn-primary" onclick="downloadQr()">Descargar PNG</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let STATE = { chips: [], lotes: [], clients: [], activeChipForQr: null, activeChipForAssign: null };
+
+async function doLogin(){
+  const password = document.getElementById('loginPassword').value;
+  const errBox = document.getElementById('loginError');
+  errBox.textContent = '';
+  try{
+    const res = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({password})});
+    const data = await res.json();
+    if(!res.ok){ errBox.textContent = data.error || 'Error al ingresar'; return; }
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    initApp();
+  }catch(e){ errBox.textContent = 'No se pudo conectar. Revisá tu conexión.'; }
+}
+function logout(){ document.cookie = 'panel_auth=; Path=/; Max-Age=0'; location.reload(); }
+
+async function initApp(){
+  await Promise.all([loadLotes(), loadClients(), loadChips()]);
+  renderStatStrip();
+}
+
+function toast(msg, isError){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(()=> t.className='toast', 2800);
+}
+
+async function loadLotes(){
+  const res = await fetch('/api/lotes');
+  STATE.lotes = res.ok ? await res.json() : [];
+  const sel = document.getElementById('filterLote');
+  sel.innerHTML = '<option value="">Todos los lotes</option>' +
+    STATE.lotes.map(l=>`<option value="${l.id}">${l.nombre} (${l.sin_asignar||0} libres)</option>`).join('');
+}
+function openLoteModal(){
+  document.getElementById('loteNombre').value='';
+  document.getElementById('loteCantidad').value='';
+  document.getElementById('modalLote').classList.add('open');
+}
+async function submitLote(){
+  const nombre = document.getElementById('loteNombre').value.trim();
+  const cantidad = parseInt(document.getElementById('loteCantidad').value, 10);
+  if(!nombre || !cantidad){ toast('Completá nombre y cantidad', true); return; }
+  const res = await fetch('/api/lotes', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({nombre, cantidad})});
+  const data = await res.json();
+  if(!res.ok){ toast(data.error || 'Error al crear el lote', true); return; }
+  closeModal('modalLote');
+  toast(`Lote "${nombre}" creado con ${cantidad} chips`);
+  await Promise.all([loadLotes(), loadChips()]);
+  renderStatStrip();
+}
+
+async function loadChips(){
+  const lote = document.getElementById('filterLote').value;
+  const status = document.getElementById('filterStatus').value;
+  const params = new URLSearchParams();
+  if(lote) params.set('lote_id', lote);
+  if(status) params.set('status', status);
+  const res = await fetch('/api/chips?' + params.toString());
+  STATE.chips = res.ok ? await res.json() : [];
+  renderChipsTable();
+  renderStatStrip();
+}
+
+function renderChipsTable(){
+  const search = document.getElementById('filterSearch').value.toLowerCase().trim();
+  let rows = STATE.chips;
+  if(search){
+    rows = rows.filter(c =>
+      String(c.numero_lote).includes(search) ||
+      (c.client_name||'').toLowerCase().includes(search) ||
+      (c.client_contact_name||'').toLowerCase().includes(search)
+    );
+  }
+  rows = [...rows].sort((a,b)=>(a.numero_lote||0)-(b.numero_lote||0));
+
+  const body = document.getElementById('chipsTableBody');
+  const empty = document.getElementById('chipsEmpty');
+  if(rows.length===0){ body.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+
+  body.innerHTML = rows.map(c => {
+    const statusLabel = c.status==='activo' ? 'Activo' : (c.status==='suspendido' ? 'Suspendido' : 'Sin asignar');
+    const isStock = c.client_name === 'STOCK - Sin Asignar' || c.status === 'sin_asignar';
+    return `
+    <tr>
+      <td class="num-cell">${String(c.numero_lote).padStart(3,'0')}</td>
+      <td class="mono">${c.slug}</td>
+      <td><span class="badge badge-${c.status}">${statusLabel}</span></td>
+      <td>${isStock ? '<span class="stock-dash">— sin asignar —</span>' : `<span class="empresa-name">${c.client_name||'—'}</span>`}</td>
+      <td>${isStock ? '—' : (c.client_contact_name||'<span class="stock-dash">sin nombre</span>')}</td>
+      <td>${isStock ? '—' : (c.client_whatsapp||'<span class="stock-dash">sin número</span>')}</td>
+      <td><button class="btn btn-secondary btn-sm" onclick="showQr('${c.slug}', ${c.numero_lote})">Ver QR</button></td>
+      <td class="actions-cell">
+        ${isStock
+          ? `<button class="btn btn-primary btn-sm" onclick="openAssignModal(${c.id}, ${c.numero_lote})">Asignar</button>
+             <button class="btn btn-danger btn-sm" onclick="deleteChip(${c.id})">Borrar</button>`
+          : `<button class="btn btn-secondary btn-sm" onclick="openAssignModal(${c.id}, ${c.numero_lote}, ${c.client_id}, '${(c.destination_url||'').replace(/'/g,"&#39;")}', '${(c.label||'').replace(/'/g,"&#39;")}')">Editar</button>
+             <button class="btn btn-danger btn-sm" onclick="liberarChip(${c.id})">Liberar</button>`
+        }
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderStatStrip(){
+  const total = STATE.chips.length;
+  const libres = STATE.chips.filter(c=>c.status==='sin_asignar').length;
+  const activos = STATE.chips.filter(c=>c.status==='activo').length;
+  const lotesCount = STATE.lotes.length;
+  document.getElementById('statStrip').innerHTML = `
+    <div class="stat-card"><div class="num">${total}</div><div class="lbl">Chips totales (filtro actual)</div></div>
+    <div class="stat-card"><div class="num">${libres}</div><div class="lbl">Sin asignar</div></div>
+    <div class="stat-card"><div class="num">${activos}</div><div class="lbl">Vendidos / activos</div></div>
+    <div class="stat-card"><div class="num">${lotesCount}</div><div class="lbl">Lotes creados</div></div>
+  `;
+}
+
+async function deleteChip(id){
+  if(!confirm('¿Borrar este chip del inventario? Esta acción no se puede deshacer.')) return;
+  const res = await fetch(`/api/chips/${id}`, {method:'DELETE'});
+  const data = await res.json();
+  if(!res.ok){ toast(data.error || 'No se pudo borrar', true); return; }
+  toast('Chip borrado');
+  await Promise.all([loadChips(), loadLotes()]);
+}
+
+async function liberarChip(id){
+  if(!confirm('¿Liberar este chip? Vuelve a quedar disponible en stock, sin cliente asignado.')) return;
+  const res = await fetch(`/api/chips/${id}/liberar`, {method:'POST'});
+  const data = await res.json();
+  if(!res.ok){ toast(data.error || 'No se pudo liberar', true); return; }
+  toast('Chip liberado, vuelve a stock');
+  await Promise.all([loadChips(), loadLotes()]);
+}
+
+function openAssignModal(chipId, numero, currentClientId, currentDestino, currentLabel){
+  STATE.activeChipForAssign = chipId;
+  document.getElementById('asignarNumero').textContent = '#' + String(numero).padStart(3,'0');
+  document.getElementById('asignarClientId').innerHTML = STATE.clients
+    .filter(c=>c.name !== 'STOCK - Sin Asignar')
+    .map(c=>`<option value="${c.id}" ${c.id==currentClientId?'selected':''}>${c.name}</option>`).join('') || '<option value="">— No hay empresas cargadas —</option>';
+  document.getElementById('asignarDestino').value = currentDestino || '';
+  document.getElementById('asignarLabel').value = currentLabel || '';
+  document.querySelector('input[name=clienteMode][value=existente]').checked = true;
+  toggleClienteMode();
+  document.getElementById('modalAsignar').classList.add('open');
+}
+function toggleClienteMode(){
+  const mode = document.querySelector('input[name=clienteMode]:checked').value;
+  document.getElementById('clienteExistenteBox').style.display = mode==='existente' ? 'block' : 'none';
+  document.getElementById('clienteNuevoBox').style.display = mode==='nuevo' ? 'block' : 'none';
+}
+async function submitAsignar(){
+  const mode = document.querySelector('input[name=clienteMode]:checked').value;
+  const destino = document.getElementById('asignarDestino').value.trim();
+  const label = document.getElementById('asignarLabel').value.trim();
+  if(!destino){ toast('Falta el link de destino', true); return; }
+
+  let clientId;
+  if(mode === 'existente'){
+    clientId = document.getElementById('asignarClientId').value;
+    if(!clientId){ toast('Elegí una empresa', true); return; }
+  } else {
+    const name = document.getElementById('nuevoClienteNombre').value.trim();
+    const whatsapp = document.getElementById('nuevoClienteWhatsapp').value.trim();
+    const business_type = document.getElementById('nuevoClienteRubro').value.trim();
+    const contact_name = document.getElementById('nuevoClienteContacto').value.trim();
+    if(!name){ toast('Falta el nombre de la empresa', true); return; }
+    const res = await fetch('/api/clients', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, whatsapp, business_type, contact_name, plan:'sin definir', signup_date: new Date().toISOString().slice(0,10)})
+    });
+    const data = await res.json();
+    if(!res.ok){ toast(data.error || 'No se pudo crear la empresa', true); return; }
+    clientId = data.id;
+  }
+
+  const res = await fetch(`/api/chips/${STATE.activeChipForAssign}/asignar`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({client_id: clientId, destination_url: destino, label, force:true})
+  });
+  const data = await res.json();
+  if(!res.ok){ toast(data.error || 'No se pudo asignar', true); return; }
+  closeModal('modalAsignar');
+  toast('Chip asignado correctamente');
+  await Promise.all([loadChips(), loadClients(), loadLotes()]);
+}
+
+function showQr(slug, numero){
+  const url = `${location.origin}/c/${slug}?src=qr`;
+  document.getElementById('qrModalTitle').textContent = 'Chip #' + String(numero).padStart(3,'0');
+  const box = document.getElementById('qrModalCanvas');
+  box.innerHTML = '';
+  new QRCode(box, { text: url, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+  document.getElementById('qrModalLink').textContent = url;
+  STATE.activeChipForQr = numero;
+  document.getElementById('modalQr').classList.add('open');
+}
+function downloadQr(){
+  const canvas = document.querySelector('#qrModalCanvas canvas');
+  if(!canvas) return;
+  const link = document.createElement('a');
+  link.download = `qr_${String(STATE.activeChipForQr).padStart(3,'0')}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+
+async function loadClients(){
+  const res = await fetch('/api/clients');
+  STATE.clients = res.ok ? await res.json() : [];
+}
+
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(ov=>{
+  ov.addEventListener('click', e=>{ if(e.target===ov) ov.classList.remove('open'); });
+});
+
+(async function checkSession(){
+  try{
+    const res = await fetch('/api/clients');
+    if(res.ok){
+      document.getElementById('loginScreen').style.display='none';
+      document.getElementById('app').style.display='block';
+      initApp();
+    }
+  }catch(e){}
+})();
+</script>
+</body>
+</html>
