@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Tapy — Inventario</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root{
     --navy:#0d2f6e;
@@ -35,9 +36,10 @@
   .topbar{background:var(--navy);color:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10;flex-wrap:wrap;gap:8px;}
   .brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:17px;}
   .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--orange);flex:none;}
-  .topbar-actions{display:flex;gap:8px;}
+  .topbar-actions{display:flex;gap:8px;flex-wrap:wrap;}
   .topbar button{background:transparent;border:1px solid rgba(255,255,255,.35);color:white;padding:8px 13px;border-radius:8px;cursor:pointer;font-size:12.5px;white-space:nowrap;}
   .topbar button:active{background:rgba(255,255,255,.15);}
+  .domain-pill{font-size:11px;color:#c3d1f0;background:rgba(255,255,255,.08);padding:6px 10px;border-radius:20px;}
 
   .content{padding:16px;max-width:1250px;margin:0 auto;}
   .row-between{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;}
@@ -61,7 +63,7 @@
   .stat-card .lbl{font-size:11px;color:var(--muted);margin-top:2px;}
   @media(min-width:700px){ .stat-strip{grid-template-columns:repeat(5,1fr);} }
 
-  .filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  .filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;}
   .filter-bar select, .filter-bar input[type=text]{padding:10px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:white;min-height:42px;}
   .filter-bar select{flex:1;min-width:130px;}
   .filter-bar input[type=text]{flex:2;min-width:180px;}
@@ -103,6 +105,8 @@
   .taps-breakdown{font-size:10.5px;color:var(--muted);}
   .taps-breakdown span{margin-right:6px;}
 
+  .qr-actions-cell{display:flex;gap:6px;flex-wrap:wrap;}
+
   .modal-overlay{display:none;position:fixed;inset:0;background:rgba(8,20,50,.55);z-index:100;align-items:flex-end;justify-content:center;padding:0;}
   .modal-overlay.open{display:flex;}
   .modal{background:white;border-radius:16px 16px 0 0;padding:22px 20px calc(22px + env(safe-area-inset-bottom));width:100%;max-width:480px;max-height:92vh;overflow-y:auto;}
@@ -138,6 +142,7 @@
   .toast.error{background:var(--red);}
 
   .helper-link{background:none;border:none;color:var(--navy);text-decoration:underline;font-size:12px;cursor:pointer;padding:0;}
+  .progress-box{margin-top:14px;background:var(--paper);border-radius:8px;padding:10px 12px;font-size:12.5px;color:var(--muted);text-align:center;}
 </style>
 </head>
 <body>
@@ -156,6 +161,8 @@
   <div class="topbar">
     <div class="brand"><span class="dot"></span>Tapy — Inventario</div>
     <div class="topbar-actions">
+      <span class="domain-pill" id="domainPill">dominio: —</span>
+      <button onclick="openDominioModal()">Dominio</button>
       <button onclick="openEmpresasModal()">Empresas</button>
       <button onclick="logout()">Salir</button>
     </div>
@@ -180,12 +187,13 @@
         <option value="activo">Activo</option>
       </select>
       <input type="text" id="filterSearch" placeholder="Buscar número, empresa o contacto..." oninput="renderChipsTable()">
+      <button class="btn btn-secondary" id="btnExportarLote" onclick="exportarLoteActual()" disabled>Exportar QR del lote</button>
     </div>
 
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>N°</th><th>Slug</th><th>Estado</th><th>Empresa</th><th>Contacto</th><th>WhatsApp</th><th>Toques</th><th>QR</th><th>Acciones</th></tr>
+          <tr><th>N°</th><th>Slug</th><th>Estado</th><th>Empresa</th><th>Contacto</th><th>WhatsApp</th><th>Toques</th><th>QR / Link</th><th>Acciones</th></tr>
         </thead>
         <tbody id="chipsTableBody"></tbody>
       </table>
@@ -206,6 +214,7 @@
     <div class="modal-sub">Genera slugs únicos para nuevos chips NFC, listos para grabar y para exportar sus QR.</div>
     <div class="field"><label>Nombre del lote</label><input type="text" id="loteNombre" placeholder="Ej: Lote Agosto 2026"></div>
     <div class="field"><label>Cantidad de chips</label><input type="number" id="loteCantidad" min="1" max="500" placeholder="Ej: 100"></div>
+    <div class="field-hint" style="margin-bottom:14px;">Los links de este lote van a usar el dominio activo actual (<span id="loteModalDomainHint">—</span>). Podés cambiarlo antes de crear el lote con el botón "Dominio" de arriba si hace falta.</div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('modalLote')">Cancelar</button>
       <button class="btn btn-primary" onclick="submitLote()">Crear lote</button>
@@ -275,10 +284,26 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modalDominio">
+  <div class="modal">
+    <h3>Dominio activo</h3>
+    <div class="modal-sub">Este es el dominio que se usa para armar los links nuevos: al ver un QR, copiar el link para NFC, o exportar un lote. Los chips ya grabados o impresos con el dominio anterior siguen funcionando igual, para siempre — cambiar esto no les afecta en nada.</div>
+    <div class="field">
+      <label>Dominio</label>
+      <input type="text" id="dominioInput" placeholder="Ej: https://app.tapy.site">
+      <div class="field-hint">Sin la barra "/" al final. Incluí "https://".</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modalDominio')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarDominio()">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
-let STATE = { chips: [], lotes: [], clients: [], activeChipForQr: null, activeChipForAssign: null };
+let STATE = { chips: [], lotes: [], clients: [], activeChipForQr: null, activeChipForAssign: null, dominioActivo: '' };
 
 async function doLogin(){
   const password = document.getElementById('loginPassword').value;
@@ -296,7 +321,7 @@ async function doLogin(){
 function logout(){ document.cookie = 'panel_auth=; Path=/; Max-Age=0'; location.reload(); }
 
 async function initApp(){
-  await Promise.all([loadLotes(), loadClients(), loadChips()]);
+  await Promise.all([loadLotes(), loadClients(), loadChips(), loadDominio()]);
   renderStatStrip();
 }
 
@@ -327,6 +352,34 @@ async function apiFetch(url, options){
   return data;
 }
 
+// ---------- DOMINIO ACTIVO ----------
+async function loadDominio(){
+  try{
+    const data = await apiFetch('/api/settings');
+    STATE.dominioActivo = (data.dominio_activo || location.origin).replace(/\/$/, '');
+  }catch(e){
+    STATE.dominioActivo = location.origin;
+  }
+  document.getElementById('domainPill').textContent = 'dominio: ' + STATE.dominioActivo.replace(/^https?:\/\//,'');
+}
+function openDominioModal(){
+  document.getElementById('dominioInput').value = STATE.dominioActivo;
+  document.getElementById('modalDominio').classList.add('open');
+}
+async function guardarDominio(){
+  let val = document.getElementById('dominioInput').value.trim();
+  if(!val){ toast('Ingresá un dominio', true); return; }
+  if(!/^https?:\/\//.test(val)) val = 'https://' + val;
+  val = val.replace(/\/$/, '');
+  try{
+    await apiFetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({dominio_activo: val})});
+  }catch(e){ return; }
+  STATE.dominioActivo = val;
+  document.getElementById('domainPill').textContent = 'dominio: ' + val.replace(/^https?:\/\//,'');
+  closeModal('modalDominio');
+  toast('Dominio activo actualizado. Los chips ya grabados no se ven afectados.');
+}
+
 async function loadLotes(){
   try{
     STATE.lotes = await apiFetch('/api/lotes');
@@ -334,10 +387,12 @@ async function loadLotes(){
   const sel = document.getElementById('filterLote');
   sel.innerHTML = '<option value="">Todos los lotes</option>' +
     STATE.lotes.map(l=>`<option value="${l.id}">${l.nombre} (${l.sin_asignar||0} libres)</option>`).join('');
+  toggleExportButton();
 }
 function openLoteModal(){
   document.getElementById('loteNombre').value='';
   document.getElementById('loteCantidad').value='';
+  document.getElementById('loteModalDomainHint').textContent = STATE.dominioActivo.replace(/^https?:\/\//,'');
   document.getElementById('modalLote').classList.add('open');
 }
 async function submitLote(){
@@ -364,6 +419,12 @@ async function loadChips(){
   }catch(e){ STATE.chips = []; }
   renderChipsTable();
   renderStatStrip();
+  toggleExportButton();
+}
+
+function toggleExportButton(){
+  const loteSel = document.getElementById('filterLote').value;
+  document.getElementById('btnExportarLote').disabled = !loteSel;
 }
 
 function matchesSearch(c, search){
@@ -402,6 +463,12 @@ function tapsCellHtml(c){
     <span class="taps-breakdown"><span>NFC ${nfc}</span><span>QR ${qr}</span></span>
   </div>`;
 }
+function qrActionsHtml(c){
+  return `<div class="qr-actions-cell">
+    <button class="btn btn-secondary btn-sm" onclick="showQr('${c.slug}', ${c.numero_lote})">Ver QR</button>
+    <button class="btn btn-secondary btn-sm" onclick="copiarLinkNfc('${c.slug}')">Copiar link NFC</button>
+  </div>`;
+}
 
 function rowHtml(c){
   const isStock = isStockOf(c);
@@ -414,7 +481,7 @@ function rowHtml(c){
     <td>${isStock ? '—' : (c.client_contact_name||'<span class="stock-dash">sin nombre</span>')}</td>
     <td>${isStock ? '—' : (c.client_whatsapp||'<span class="stock-dash">sin número</span>')}</td>
     <td>${tapsCellHtml(c)}</td>
-    <td><button class="btn btn-secondary btn-sm" onclick="showQr('${c.slug}', ${c.numero_lote})">Ver QR</button></td>
+    <td>${qrActionsHtml(c)}</td>
     <td class="actions-cell">${actionsHtml(c, isStock)}</td>
   </tr>`;
 }
@@ -436,6 +503,7 @@ function cardHtml(c){
     <div class="chip-card-row">Toques: <b>${c.taps_total||0}</b> (NFC ${c.taps_nfc||0} · QR ${c.taps_qr||0})</div>
     <div class="chip-card-actions">
       <button class="btn btn-secondary btn-sm" onclick="showQr('${c.slug}', ${c.numero_lote})">Ver QR</button>
+      <button class="btn btn-secondary btn-sm" onclick="copiarLinkNfc('${c.slug}')">Copiar NFC</button>
       ${actionsHtml(c, isStock)}
     </div>
   </div>`;
@@ -553,8 +621,12 @@ async function submitAsignar(){
   await Promise.all([loadChips(), loadClients(), loadLotes()]);
 }
 
+// ---------- LINKS: QR (con src=qr) vs NFC (limpio) ----------
+function linkParaQr(slug){ return `${STATE.dominioActivo}/c/${slug}?src=qr`; }
+function linkParaNfc(slug){ return `${STATE.dominioActivo}/c/${slug}`; }
+
 function showQr(slug, numero){
-  const url = `${location.origin}/c/${slug}?src=qr`;
+  const url = linkParaQr(slug);
   document.getElementById('qrModalTitle').textContent = 'Chip #' + String(numero).padStart(3,'0');
   const box = document.getElementById('qrModalCanvas');
   box.innerHTML = '';
@@ -570,6 +642,66 @@ function downloadQr(){
   link.download = `qr_${String(STATE.activeChipForQr).padStart(3,'0')}.png`;
   link.href = canvas.toDataURL('image/png');
   link.click();
+}
+async function copiarLinkNfc(slug){
+  const url = linkParaNfc(slug);
+  try{
+    await navigator.clipboard.writeText(url);
+    toast('Link para NFC copiado (sin ?src=qr)');
+  }catch(e){
+    prompt('Copiá este link manualmente:', url);
+  }
+}
+
+// ---------- EXPORTAR LOTE COMPLETO (ZIP de QR) ----------
+async function exportarLoteActual(){
+  const loteId = document.getElementById('filterLote').value;
+  if(!loteId){ toast('Elegí un lote específico primero', true); return; }
+  const lote = STATE.lotes.find(l => String(l.id) === String(loteId));
+  const chipsDelLote = STATE.chips.filter(c => String(c.lote_id) === String(loteId));
+  if(!chipsDelLote.length){
+    toast('Ese lote no tiene chips cargados en la vista actual (revisá los filtros)', true);
+    return;
+  }
+
+  const btn = document.getElementById('btnExportarLote');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+
+  try{
+    const zip = new JSZip();
+    let done = 0;
+    for(const chip of chipsDelLote){
+      btn.textContent = `Generando ${++done}/${chipsDelLote.length}...`;
+      const holder = document.createElement('div');
+      holder.style.position = 'fixed';
+      holder.style.left = '-9999px';
+      document.body.appendChild(holder);
+      new QRCode(holder, { text: linkParaQr(chip.slug), width: 400, height: 400, correctLevel: QRCode.CorrectLevel.M });
+      await new Promise(r => setTimeout(r, 30));
+      const canvas = holder.querySelector('canvas');
+      const dataUrl = canvas.toDataURL('image/png').split(',')[1];
+      const fname = `${String(chip.numero_lote).padStart(3,'0')}.png`;
+      zip.file(fname, dataUrl, {base64:true});
+      document.body.removeChild(holder);
+    }
+    btn.textContent = 'Comprimiendo...';
+    const blob = await zip.generateAsync({type:'blob'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(lote ? lote.nombre : 'lote_'+loteId).replace(/[^a-z0-9]/gi,'_')}_QRs.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast(`Listo: ${chipsDelLote.length} QR exportados en un ZIP`);
+  }catch(e){
+    toast('Hubo un error generando el ZIP: ' + e.message, true);
+  }finally{
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
 }
 
 async function loadClients(){
