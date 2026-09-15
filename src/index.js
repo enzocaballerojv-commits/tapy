@@ -376,6 +376,9 @@ async function apiLotesCreate(request, env) {
     const { results: existingRows } = await env.DB.prepare(`SELECT slug FROM chips`).all();
     const existingSlugs = new Set(existingRows.map((r) => r.slug));
 
+    const maxRow = await env.DB.prepare(`SELECT MAX(numero_lote) AS max_numero FROM chips`).first();
+    const startNumero = (maxRow && maxRow.max_numero ? maxRow.max_numero : 0) + 1;
+
     const nuevosSlugs = [];
     let attempts = 0;
     while (nuevosSlugs.length < cantidad) {
@@ -398,11 +401,11 @@ async function apiLotesCreate(request, env) {
       env.DB.prepare(
         `INSERT INTO chips (client_id, slug, destination_url, lote_id, numero_lote, status)
          VALUES (?, ?, ?, ?, ?, 'sin_asignar')`
-      ).bind(stockClientId, slug, "https://tapy.com.py/pendiente-asignacion", loteId, index + 1)
+      ).bind(stockClientId, slug, "https://tapy.com.py/pendiente-asignacion", loteId, startNumero + index)
     );
     await env.DB.batch(statements);
 
-    const chips = nuevosSlugs.map((slug, index) => ({ numero_lote: index + 1, slug }));
+    const chips = nuevosSlugs.map((slug, index) => ({ numero_lote: startNumero + index, slug }));
     return json({ lote_id: loteId, nombre: body.nombre, total_chips: cantidad, chips });
   } catch (err) {
     return json({ error: err.message }, 500);
