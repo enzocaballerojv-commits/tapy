@@ -230,10 +230,20 @@ async function apiChipsList(request, env) {
     const loteFilter = url.searchParams.get("lote_id");
     let query = `SELECT chips.*, clients.name AS client_name, clients.status AS client_status,
         clients.contact_name AS client_contact_name, clients.whatsapp AS client_whatsapp,
-        (SELECT COUNT(*) FROM taps WHERE taps.chip_id = chips.id) AS taps_total,
-        (SELECT COUNT(*) FROM taps WHERE taps.chip_id = chips.id AND taps.source = 'nfc') AS taps_nfc,
-        (SELECT COUNT(*) FROM taps WHERE taps.chip_id = chips.id AND taps.source = 'qr') AS taps_qr
-       FROM chips JOIN clients ON chips.client_id = clients.id WHERE 1=1`;
+        COALESCE(taps_agg.taps_total, 0) AS taps_total,
+        COALESCE(taps_agg.taps_nfc, 0) AS taps_nfc,
+        COALESCE(taps_agg.taps_qr, 0) AS taps_qr
+       FROM chips
+       JOIN clients ON chips.client_id = clients.id
+       LEFT JOIN (
+         SELECT chip_id,
+           COUNT(*) AS taps_total,
+           SUM(CASE WHEN source = 'nfc' THEN 1 ELSE 0 END) AS taps_nfc,
+           SUM(CASE WHEN source = 'qr' THEN 1 ELSE 0 END) AS taps_qr
+         FROM taps
+         GROUP BY chip_id
+       ) taps_agg ON taps_agg.chip_id = chips.id
+       WHERE 1=1`;
     const binds = [];
     if (statusFilter) {
       query += ` AND chips.status = ?`;
