@@ -120,8 +120,7 @@ async function handleApi(request, env, path) {
 
   if (path === "/api/distribuidores" && method === "GET") return apiDistribuidoresList(env);
   if (path === "/api/distribuidores" && method === "POST") return apiDistribuidoresCreate(request, env);
-  const loteTransferirMatch = path.match(/^\/api\/lotes\/(\d+)\/transferir$/);
-  if (loteTransferirMatch && method === "POST") return apiLoteTransferir(loteTransferirMatch[1], request, env);
+  if (path === "/api/chips/transferir" && method === "POST") return apiChipsTransferir(request, env);
 
   return json({ error: "Ruta no encontrada" }, 404);
 }
@@ -245,11 +244,13 @@ async function apiChipsList(request, env) {
     const loteFilter = url.searchParams.get("lote_id");
     let query = `SELECT chips.*, clients.name AS client_name, clients.status AS client_status,
         clients.contact_name AS client_contact_name, clients.whatsapp AS client_whatsapp,
+        distribuidores.nombre AS distribuidor_nombre,
         COALESCE(taps_agg.taps_total, 0) AS taps_total,
         COALESCE(taps_agg.taps_nfc, 0) AS taps_nfc,
         COALESCE(taps_agg.taps_qr, 0) AS taps_qr
        FROM chips
        JOIN clients ON chips.client_id = clients.id
+       LEFT JOIN distribuidores ON chips.distribuidor_id = distribuidores.id
        LEFT JOIN (
          SELECT chip_id,
            COUNT(*) AS taps_total,
@@ -440,12 +441,10 @@ async function apiLotesCreate(request, env) {
 async function apiLotesList(env) {
   try {
     const { results } = await env.DB.prepare(
-      `SELECT lotes.*, distribuidores.nombre AS distribuidor_nombre,
+      `SELECT lotes.*,
         SUM(CASE WHEN chips.status = 'sin_asignar' THEN 1 ELSE 0 END) AS sin_asignar,
         SUM(CASE WHEN chips.status = 'activo' THEN 1 ELSE 0 END) AS activos
-       FROM lotes
-       LEFT JOIN chips ON chips.lote_id = lotes.id
-       LEFT JOIN distribuidores ON lotes.distribuidor_id = distribuidores.id
+       FROM lotes LEFT JOIN chips ON chips.lote_id = lotes.id
        GROUP BY lotes.id ORDER BY lotes.id DESC`
     ).all();
     return json(results);
@@ -591,25 +590,30 @@ async function apiDistribuidoresCreate(request, env) {
 }
 __name(apiDistribuidoresCreate, "apiDistribuidoresCreate");
 
-async function apiLoteTransferir(loteId, request, env) {
+async function apiChipsTransferir(request, env) {
   try {
     const body = await request.json();
+    const chipIds = Array.isArray(body.chip_ids) ? body.chip_ids.filter((n) => Number.isInteger(n) || /^\d+$/.test(n)) : [];
+    if (!chipIds.length) return json({ error: "No se especificaron chips para transferir" }, 400);
     const distribuidorId = body.distribuidor_id || null;
     if (distribuidorId) {
       const dist = await env.DB.prepare(`SELECT id FROM distribuidores WHERE id = ?`).bind(distribuidorId).first();
       if (!dist) return json({ error: "Distribuidor no encontrado" }, 404);
     }
-    await env.DB.prepare(`UPDATE lotes SET distribuidor_id = ? WHERE id = ?`).bind(distribuidorId, loteId).run();
-    return json({ ok: true });
+    const statements = chipIds.map((id) =>
+      env.DB.prepare(`UPDATE chips SET distribuidor_id = ? WHERE id = ?`).bind(distribuidorId, id)
+    );
+    await env.DB.batch(statements);
+    return json({ ok: true, total: chipIds.length });
   } catch (err) {
     return json({ error: err.message }, 500);
   }
 }
-__name(apiLoteTransferir, "apiLoteTransferir");
+__name(apiChipsTransferir, "apiChipsTransferir");
 
 async function chipBelongsToDistribuidor(env, chipId, distribuidorId) {
   const row = await env.DB.prepare(
-    `SELECT chips.id FROM chips JOIN lotes ON chips.lote_id = lotes.id WHERE chips.id = ? AND lotes.distribuidor_id = ?`
+    `SELECT id FROM chips WHERE id = ? AND distribuidor_id = ?`
   ).bind(chipId, distribuidorId).first();
   return !!row;
 }
@@ -630,11 +634,11 @@ async function handleDistribuidorApi(request, env, path, dist) {
 
   if (path === "/api/distribuidor/lotes" && method === "GET") {
     const { results } = await env.DB.prepare(
-      `SELECT lotes.*,
+      `SELECT lotes.id, lotes.nombre, lotes.total_chips, lotes.created_at,
         SUM(CASE WHEN chips.status = 'sin_asignar' THEN 1 ELSE 0 END) AS sin_asignar,
         SUM(CASE WHEN chips.status = 'activo' THEN 1 ELSE 0 END) AS activos
-       FROM lotes LEFT JOIN chips ON chips.lote_id = lotes.id
-       WHERE lotes.distribuidor_id = ?
+       FROM chips JOIN lotes ON chips.lote_id = lotes.id
+       WHERE chips.distribuidor_id = ?
        GROUP BY lotes.id ORDER BY lotes.id DESC`
     ).bind(dist.id).all();
     return json(results);
@@ -650,14 +654,13 @@ async function handleDistribuidorApi(request, env, path, dist) {
         COALESCE(taps_agg.taps_qr, 0) AS taps_qr
        FROM chips
        JOIN clients ON chips.client_id = clients.id
-       JOIN lotes ON chips.lote_id = lotes.id
        LEFT JOIN (
          SELECT chip_id, COUNT(*) AS taps_total,
            SUM(CASE WHEN source = 'nfc' THEN 1 ELSE 0 END) AS taps_nfc,
            SUM(CASE WHEN source = 'qr' THEN 1 ELSE 0 END) AS taps_qr
          FROM taps GROUP BY chip_id
        ) taps_agg ON taps_agg.chip_id = chips.id
-       WHERE lotes.distribuidor_id = ?`;
+       WHERE chips.distribuidor_id = ?`;
     const binds = [dist.id];
     if (statusFilter) {
       query += ` AND chips.status = ?`;
@@ -692,8 +695,7 @@ async function handleDistribuidorApi(request, env, path, dist) {
     const { results } = await env.DB.prepare(
       `SELECT DISTINCT clients.* FROM clients
        JOIN chips ON chips.client_id = clients.id
-       JOIN lotes ON chips.lote_id = lotes.id
-       WHERE lotes.distribuidor_id = ?`
+       WHERE chips.distribuidor_id = ?`
     ).bind(dist.id).all();
     return json(results);
   }
