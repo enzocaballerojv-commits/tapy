@@ -686,12 +686,49 @@ async function submitAsignar(){
 function linkParaQr(slug){ return `${STATE.dominioActivo}/c/${slug}?src=qr`; }
 function linkParaNfc(slug){ return `${STATE.dominioActivo}/c/${slug}`; }
 
-function showQr(slug, numero){
+// Genera un QR compuesto: el patrón QR con margen propio + el numero dibujado
+// en una franja blanca reservada abajo, nunca superpuesto al patron (asi siempre escanea bien).
+function generateNumberedQrCanvas(url, numero, size){
+  size = size || 400;
+  return new Promise((resolve) => {
+    const holder = document.createElement('div');
+    holder.style.position = 'fixed';
+    holder.style.left = '-9999px';
+    document.body.appendChild(holder);
+    const qrInnerSize = Math.round(size * 0.82);
+    new QRCode(holder, { text: url, width: qrInnerSize, height: qrInnerSize, correctLevel: QRCode.CorrectLevel.M });
+    setTimeout(() => {
+      const qrCanvas = holder.querySelector('canvas');
+      const final = document.createElement('canvas');
+      final.width = size;
+      final.height = size;
+      const ctx = final.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size, size);
+      const marginSide = Math.round((size - qrInnerSize) / 2);
+      ctx.drawImage(qrCanvas, marginSide, marginSide, qrInnerSize, qrInnerSize);
+      const label = String(numero).padStart(2, '0');
+      const bottomBandTop = marginSide + qrInnerSize;
+      const bottomBandHeight = size - bottomBandTop;
+      ctx.fillStyle = '#000000';
+      const fontSize = Math.max(14, Math.round(bottomBandHeight * 0.62));
+      ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, size / 2, bottomBandTop + bottomBandHeight / 2);
+      document.body.removeChild(holder);
+      resolve(final);
+    }, 40);
+  });
+}
+
+async function showQr(slug, numero){
   const url = linkParaQr(slug);
   document.getElementById('qrModalTitle').textContent = 'Chip #' + String(numero).padStart(3,'0');
   const box = document.getElementById('qrModalCanvas');
   box.innerHTML = '';
-  new QRCode(box, { text: url, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+  const canvas = await generateNumberedQrCanvas(url, numero, 260);
+  box.appendChild(canvas);
   document.getElementById('qrModalLink').textContent = url;
   STATE.activeChipForQr = numero;
   document.getElementById('modalQr').classList.add('open');
@@ -700,7 +737,7 @@ function downloadQr(){
   const canvas = document.querySelector('#qrModalCanvas canvas');
   if(!canvas) return;
   const link = document.createElement('a');
-  link.download = `qr_${String(STATE.activeChipForQr).padStart(3,'0')}.png`;
+  link.download = `${String(STATE.activeChipForQr).padStart(3,'0')}.png`;
   link.href = canvas.toDataURL('image/png');
   link.click();
 }
@@ -734,17 +771,10 @@ async function exportarLoteActual(){
     let done = 0;
     for(const chip of chipsDelLote){
       btn.textContent = `Generando ${++done}/${chipsDelLote.length}...`;
-      const holder = document.createElement('div');
-      holder.style.position = 'fixed';
-      holder.style.left = '-9999px';
-      document.body.appendChild(holder);
-      new QRCode(holder, { text: linkParaQr(chip.slug), width: 400, height: 400, correctLevel: QRCode.CorrectLevel.M });
-      await new Promise(r => setTimeout(r, 30));
-      const canvas = holder.querySelector('canvas');
+      const canvas = await generateNumberedQrCanvas(linkParaQr(chip.slug), chip.numero_lote, 400);
       const dataUrl = canvas.toDataURL('image/png').split(',')[1];
       const fname = `${String(chip.numero_lote).padStart(3,'0')}.png`;
       zip.file(fname, dataUrl, {base64:true});
-      document.body.removeChild(holder);
     }
     btn.textContent = 'Comprimiendo...';
     const blob = await zip.generateAsync({type:'blob'});
