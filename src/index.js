@@ -73,6 +73,16 @@ async function handleApi(request, env, path) {
   if (path === "/api/login" && method === "POST") {
     return apiLogin(request, env);
   }
+
+  if (path === "/api/distribuidor/login" && method === "POST") {
+    return apiDistribuidorLogin(request, env);
+  }
+  if (path.startsWith("/api/distribuidor/")) {
+    const dist = await requireDistribuidor(request, env);
+    if (!dist) return json({ error: "No autorizado" }, 401);
+    return handleDistribuidorApi(request, env, path, dist);
+  }
+
   if (!env.PANEL_PASSWORD) {
     return json({ error: "Falta configurar la variable PANEL_PASSWORD en el Worker" }, 500);
   }
@@ -107,6 +117,11 @@ async function handleApi(request, env, path) {
   if (chipLiberarMatch && method === "POST") return apiChipLiberar(chipLiberarMatch[1], env);
   const chipDeleteMatch = path.match(/^\/api\/chips\/(\d+)$/);
   if (chipDeleteMatch && method === "DELETE") return apiChipDelete(chipDeleteMatch[1], env);
+
+  if (path === "/api/distribuidores" && method === "GET") return apiDistribuidoresList(env);
+  if (path === "/api/distribuidores" && method === "POST") return apiDistribuidoresCreate(request, env);
+  const loteTransferirMatch = path.match(/^\/api\/lotes\/(\d+)\/transferir$/);
+  if (loteTransferirMatch && method === "POST") return apiLoteTransferir(loteTransferirMatch[1], request, env);
 
   return json({ error: "Ruta no encontrada" }, 404);
 }
@@ -425,10 +440,12 @@ async function apiLotesCreate(request, env) {
 async function apiLotesList(env) {
   try {
     const { results } = await env.DB.prepare(
-      `SELECT lotes.*,
+      `SELECT lotes.*, distribuidores.nombre AS distribuidor_nombre,
         SUM(CASE WHEN chips.status = 'sin_asignar' THEN 1 ELSE 0 END) AS sin_asignar,
         SUM(CASE WHEN chips.status = 'activo' THEN 1 ELSE 0 END) AS activos
-       FROM lotes LEFT JOIN chips ON chips.lote_id = lotes.id
+       FROM lotes
+       LEFT JOIN chips ON chips.lote_id = lotes.id
+       LEFT JOIN distribuidores ON lotes.distribuidor_id = distribuidores.id
        GROUP BY lotes.id ORDER BY lotes.id DESC`
     ).all();
     return json(results);
@@ -496,6 +513,197 @@ async function apiChipDelete(id, env) {
     return json({ error: err.message }, 500);
   }
 }
+
+
+// ---------- MAYORISTAS / DISTRIBUIDORES ----------
+
+async function sha256Hex(text) {
+  const data = new TextEncoder().encode(text);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hashBuffer)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+__name(sha256Hex, "sha256Hex");
+
+function getDistribuidorCookie(request) {
+  const cookie = request.headers.get("Cookie") || "";
+  const match = cookie.match(/distribuidor_auth=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+__name(getDistribuidorCookie, "getDistribuidorCookie");
+
+async function requireDistribuidor(request, env) {
+  const token = getDistribuidorCookie(request);
+  if (!token) return null;
+  const parts = token.split(":");
+  if (parts.length !== 2) return null;
+  const [idStr, hash] = parts;
+  const dist = await env.DB.prepare(`SELECT * FROM distribuidores WHERE id = ?`).bind(idStr).first();
+  if (!dist || dist.password_hash !== hash) return null;
+  return dist;
+}
+__name(requireDistribuidor, "requireDistribuidor");
+
+async function apiDistribuidorLogin(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Body invalido" }, 400);
+  }
+  if (!body.usuario || !body.password) return json({ error: "Faltan usuario y contrasena" }, 400);
+  const dist = await env.DB.prepare(`SELECT * FROM distribuidores WHERE usuario = ?`).bind(body.usuario).first();
+  if (!dist) return json({ error: "Usuario o contrasena incorrectos" }, 401);
+  const hash = await sha256Hex(body.password);
+  if (hash !== dist.password_hash) return json({ error: "Usuario o contrasena incorrectos" }, 401);
+  const token = `${dist.id}:${hash}`;
+  const headers = new Headers({ "Content-Type": "application/json" });
+  headers.append("Set-Cookie", `distribuidor_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
+  return new Response(JSON.stringify({ ok: true, nombre: dist.nombre }), { status: 200, headers });
+}
+__name(apiDistribuidorLogin, "apiDistribuidorLogin");
+
+async function apiDistribuidoresList(env) {
+  try {
+    const { results } = await env.DB.prepare(`SELECT id, nombre, usuario, created_at FROM distribuidores ORDER BY nombre`).all();
+    return json(results);
+  } catch (err) {
+    return json({ error: err.message }, 500);
+  }
+}
+__name(apiDistribuidoresList, "apiDistribuidoresList");
+
+async function apiDistribuidoresCreate(request, env) {
+  try {
+    const body = await request.json();
+    if (!body.nombre || !body.usuario || !body.password) {
+      return json({ error: "Faltan campos obligatorios: nombre, usuario, password" }, 400);
+    }
+    const existing = await env.DB.prepare(`SELECT id FROM distribuidores WHERE usuario = ?`).bind(body.usuario).first();
+    if (existing) return json({ error: "Ese usuario ya existe, elegi otro" }, 409);
+    const hash = await sha256Hex(body.password);
+    const result = await env.DB.prepare(
+      `INSERT INTO distribuidores (nombre, usuario, password_hash) VALUES (?,?,?)`
+    ).bind(body.nombre, body.usuario, hash).run();
+    return json({ id: result.meta.last_row_id });
+  } catch (err) {
+    return json({ error: err.message }, 500);
+  }
+}
+__name(apiDistribuidoresCreate, "apiDistribuidoresCreate");
+
+async function apiLoteTransferir(loteId, request, env) {
+  try {
+    const body = await request.json();
+    const distribuidorId = body.distribuidor_id || null;
+    if (distribuidorId) {
+      const dist = await env.DB.prepare(`SELECT id FROM distribuidores WHERE id = ?`).bind(distribuidorId).first();
+      if (!dist) return json({ error: "Distribuidor no encontrado" }, 404);
+    }
+    await env.DB.prepare(`UPDATE lotes SET distribuidor_id = ? WHERE id = ?`).bind(distribuidorId, loteId).run();
+    return json({ ok: true });
+  } catch (err) {
+    return json({ error: err.message }, 500);
+  }
+}
+__name(apiLoteTransferir, "apiLoteTransferir");
+
+async function chipBelongsToDistribuidor(env, chipId, distribuidorId) {
+  const row = await env.DB.prepare(
+    `SELECT chips.id FROM chips JOIN lotes ON chips.lote_id = lotes.id WHERE chips.id = ? AND lotes.distribuidor_id = ?`
+  ).bind(chipId, distribuidorId).first();
+  return !!row;
+}
+__name(chipBelongsToDistribuidor, "chipBelongsToDistribuidor");
+
+async function handleDistribuidorApi(request, env, path, dist) {
+  const method = request.method;
+  const url = new URL(request.url);
+
+  if (path === "/api/distribuidor/me" && method === "GET") {
+    return json({ id: dist.id, nombre: dist.nombre });
+  }
+
+  if (path === "/api/distribuidor/settings" && method === "GET") {
+    const row = await env.DB.prepare(`SELECT value FROM settings WHERE key = 'dominio_activo'`).first();
+    return json({ dominio_activo: row ? row.value : null });
+  }
+
+  if (path === "/api/distribuidor/lotes" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT lotes.*,
+        SUM(CASE WHEN chips.status = 'sin_asignar' THEN 1 ELSE 0 END) AS sin_asignar,
+        SUM(CASE WHEN chips.status = 'activo' THEN 1 ELSE 0 END) AS activos
+       FROM lotes LEFT JOIN chips ON chips.lote_id = lotes.id
+       WHERE lotes.distribuidor_id = ?
+       GROUP BY lotes.id ORDER BY lotes.id DESC`
+    ).bind(dist.id).all();
+    return json(results);
+  }
+
+  if (path === "/api/distribuidor/chips" && method === "GET") {
+    const statusFilter = url.searchParams.get("status");
+    const loteFilter = url.searchParams.get("lote_id");
+    let query = `SELECT chips.*, clients.name AS client_name, clients.status AS client_status,
+        clients.contact_name AS client_contact_name, clients.whatsapp AS client_whatsapp,
+        COALESCE(taps_agg.taps_total, 0) AS taps_total,
+        COALESCE(taps_agg.taps_nfc, 0) AS taps_nfc,
+        COALESCE(taps_agg.taps_qr, 0) AS taps_qr
+       FROM chips
+       JOIN clients ON chips.client_id = clients.id
+       JOIN lotes ON chips.lote_id = lotes.id
+       LEFT JOIN (
+         SELECT chip_id, COUNT(*) AS taps_total,
+           SUM(CASE WHEN source = 'nfc' THEN 1 ELSE 0 END) AS taps_nfc,
+           SUM(CASE WHEN source = 'qr' THEN 1 ELSE 0 END) AS taps_qr
+         FROM taps GROUP BY chip_id
+       ) taps_agg ON taps_agg.chip_id = chips.id
+       WHERE lotes.distribuidor_id = ?`;
+    const binds = [dist.id];
+    if (statusFilter) {
+      query += ` AND chips.status = ?`;
+      binds.push(statusFilter);
+    }
+    if (loteFilter) {
+      query += ` AND chips.lote_id = ?`;
+      binds.push(loteFilter);
+    }
+    query += ` ORDER BY clients.name`;
+    const { results } = await env.DB.prepare(query).bind(...binds).all();
+    return json(results);
+  }
+
+  const chipAsignarMatch = path.match(/^\/api\/distribuidor\/chips\/(\d+)\/asignar$/);
+  if (chipAsignarMatch && method === "POST") {
+    const chipId = chipAsignarMatch[1];
+    const owns = await chipBelongsToDistribuidor(env, chipId, dist.id);
+    if (!owns) return json({ error: "Ese chip no pertenece a tu inventario" }, 403);
+    return apiChipAsignar(chipId, request, env);
+  }
+
+  const chipLiberarMatch = path.match(/^\/api\/distribuidor\/chips\/(\d+)\/liberar$/);
+  if (chipLiberarMatch && method === "POST") {
+    const chipId = chipLiberarMatch[1];
+    const owns = await chipBelongsToDistribuidor(env, chipId, dist.id);
+    if (!owns) return json({ error: "Ese chip no pertenece a tu inventario" }, 403);
+    return apiChipLiberar(chipId, env);
+  }
+
+  if (path === "/api/distribuidor/clients" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT DISTINCT clients.* FROM clients
+       JOIN chips ON chips.client_id = clients.id
+       JOIN lotes ON chips.lote_id = lotes.id
+       WHERE lotes.distribuidor_id = ?`
+    ).bind(dist.id).all();
+    return json(results);
+  }
+  if (path === "/api/distribuidor/clients" && method === "POST") {
+    return apiClientsCreate(request, env);
+  }
+
+  return json({ error: "Ruta no encontrada" }, 404);
+}
+__name(handleDistribuidorApi, "handleDistribuidorApi");
 
 export {
   index_default as default
