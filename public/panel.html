@@ -688,10 +688,9 @@ function linkParaNfc(slug){ return `${STATE.dominioActivo}/c/${slug}`; }
 
 // Genera un QR compuesto: el patrón QR con margen propio + el numero dibujado
 // en una franja blanca reservada abajo, nunca superpuesto al patron (asi siempre escanea bien).
-// El QR se dibuja a tamano completo y normal, con su margen de seguridad
-// estandar (4 modulos, igual que cualquier QR impreso) - nunca se achica.
-// El numero va en una franja aparte, agregada debajo, para que pueda ser
-// grande sin arriesgar ni un pixel del patron del QR.
+// Replica exacta del formato original: el QR ocupa todo el lienzo (cuadrado,
+// sin agregar nada extra), con su margen de seguridad estandar (4 modulos).
+// El numero va DENTRO de ese mismo margen inferior, tal cual el diseño de referencia.
 function generateNumberedQrCanvas(url, numero, finalWidth){
   finalWidth = finalWidth || 400;
   return new Promise((resolve) => {
@@ -707,21 +706,21 @@ function generateNumberedQrCanvas(url, numero, finalWidth){
       const totalModules = nCount + marginModules * 2;
       const marginPx = Math.round(finalWidth * (marginModules / totalModules));
       const qrPatternSize = finalWidth - marginPx * 2;
-      const bandHeight = Math.round(finalWidth * 0.25);
-      const finalHeight = finalWidth + bandHeight;
 
       const qrCanvas = holder.querySelector('canvas');
       const final = document.createElement('canvas');
       final.width = finalWidth;
-      final.height = finalHeight;
+      final.height = finalWidth; // cuadrado, igual que el diseño de referencia
       const ctx = final.getContext('2d');
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, finalWidth, finalHeight);
+      ctx.fillRect(0, 0, finalWidth, finalWidth);
       ctx.drawImage(qrCanvas, marginPx, marginPx, qrPatternSize, qrPatternSize);
 
+      // el numero vive dentro del margen inferior existente, no se agrega espacio nuevo
       const label = String(numero).padStart(2, '0');
-      const bandTop = finalWidth;
-      const fontSize = Math.max(24, Math.round(bandHeight * 0.72));
+      const bandTop = marginPx + qrPatternSize;
+      const bandHeight = Math.round(marginPx * 0.85);
+      const fontSize = Math.max(18, Math.round(bandHeight * 0.95));
       ctx.fillStyle = '#000000';
       ctx.font = `bold ${fontSize}px Arial, sans-serif`;
       ctx.textAlign = 'center';
