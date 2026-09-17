@@ -151,6 +151,15 @@
   .chip-checkbox{width:18px;height:18px;cursor:pointer;}
   .mayorista-badge{font-size:11px;color:var(--navy);background:#eaf1fd;padding:3px 8px;border-radius:12px;font-weight:700;}
   .progress-box{margin-top:14px;background:var(--paper);border-radius:8px;padding:10px 12px;font-size:12.5px;color:var(--muted);text-align:center;}
+  .domain-btn-list{display:flex;flex-direction:column;gap:10px;}
+  .domain-btn{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px;border-radius:10px;border:1px solid var(--line);background:white;
+    font-weight:700;font-size:14px;cursor:pointer;text-align:left;color:var(--ink);
+  }
+  .domain-btn:active{background:var(--paper);}
+  .domain-btn.active{border-color:var(--navy);background:#eaf1fd;color:var(--navy);}
+  .domain-btn .check{color:var(--green);font-weight:800;}
 </style>
 </head>
 <body>
@@ -306,15 +315,13 @@
 <div class="modal-overlay" id="modalDominio">
   <div class="modal">
     <h3>Dominio activo</h3>
-    <div class="modal-sub">Este es el dominio que se usa para armar los links nuevos: al ver un QR, copiar el link para NFC, o exportar un lote. Los chips ya grabados o impresos con el dominio anterior siguen funcionando igual, para siempre — cambiar esto no les afecta en nada.</div>
-    <div class="field">
-      <label>Dominio</label>
-      <input type="text" id="dominioInput" placeholder="Ej: https://app.tapy.site">
-      <div class="field-hint">Sin la barra "/" al final. Incluí "https://".</div>
+    <div class="modal-sub">Elegí con qué dominio armar los links nuevos (QR, NFC, exportaciones). Al elegir uno, la página guarda el cambio y te lleva ahí. Los chips ya grabados o impresos con el dominio anterior siguen funcionando igual, para siempre.</div>
+    <div class="domain-btn-list" id="domainBtnList"></div>
+    <div class="field-hint" style="margin-top:16px;text-align:center;">
+      Acceso rápido: <button class="helper-link" onclick="irAMayorista()">abrir el panel del mayorista</button>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-secondary" onclick="closeModal('modalDominio')">Cancelar</button>
-      <button class="btn btn-primary" onclick="guardarDominio()">Guardar</button>
+      <button class="btn btn-secondary" onclick="closeModal('modalDominio')">Cerrar</button>
     </div>
   </div>
 </div>
@@ -413,22 +420,29 @@ async function loadDominio(){
   }
   document.getElementById('domainPill').textContent = 'dominio: ' + STATE.dominioActivo.replace(/^https?:\/\//,'');
 }
+const DOMINIOS_DISPONIBLES = [
+  { url: 'https://app.tapy.site', label: 'app.tapy.site' },
+  { url: 'https://tapy.enzocaballero-jv.workers.dev', label: 'tapy.enzocaballero-jv.workers.dev (el viejo)' }
+];
+
 function openDominioModal(){
-  document.getElementById('dominioInput').value = STATE.dominioActivo;
+  const box = document.getElementById('domainBtnList');
+  box.innerHTML = DOMINIOS_DISPONIBLES.map(d => {
+    const isActive = STATE.dominioActivo.replace(/\/$/,'') === d.url;
+    return `<button class="domain-btn ${isActive?'active':''}" onclick="cambiarDominio('${d.url}')">
+      <span>${d.label}</span>${isActive ? '<span class="check">✓ activo</span>' : ''}
+    </button>`;
+  }).join('');
   document.getElementById('modalDominio').classList.add('open');
 }
-async function guardarDominio(){
-  let val = document.getElementById('dominioInput').value.trim();
-  if(!val){ toast('Ingresá un dominio', true); return; }
-  if(!/^https?:\/\//.test(val)) val = 'https://' + val;
-  val = val.replace(/\/$/, '');
+async function cambiarDominio(nuevoDominio){
   try{
-    await apiFetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({dominio_activo: val})});
+    await apiFetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({dominio_activo: nuevoDominio})});
   }catch(e){ return; }
-  STATE.dominioActivo = val;
-  document.getElementById('domainPill').textContent = 'dominio: ' + val.replace(/^https?:\/\//,'');
-  closeModal('modalDominio');
-  toast('Dominio activo actualizado. Los chips ya grabados no se ven afectados.');
+  window.location.href = nuevoDominio + '/panel.html';
+}
+function irAMayorista(){
+  window.location.href = STATE.dominioActivo + '/distribuidor.html';
 }
 
 async function loadLotes(){
