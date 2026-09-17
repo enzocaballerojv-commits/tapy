@@ -521,37 +521,49 @@ function linkParaNfc(slug){ return `${STATE.dominioActivo}/c/${slug}`; }
 
 // Genera un QR compuesto: el patrón QR con margen propio + el numero dibujado
 // en una franja blanca reservada abajo, nunca superpuesto al patron (asi siempre escanea bien).
-function generateNumberedQrCanvas(url, numero, size){
-  size = size || 400;
+// El QR se dibuja a tamano completo y normal, con su margen de seguridad
+// estandar (4 modulos, igual que cualquier QR impreso) - nunca se achica.
+// El numero va en una franja aparte, agregada debajo, para que pueda ser
+// grande sin arriesgar ni un pixel del patron del QR.
+function generateNumberedQrCanvas(url, numero, finalWidth){
+  finalWidth = finalWidth || 400;
   return new Promise((resolve) => {
     const holder = document.createElement('div');
     holder.style.position = 'fixed';
     holder.style.left = '-9999px';
     document.body.appendChild(holder);
-    const qrInnerSize = Math.round(size * 0.82);
-    new QRCode(holder, { text: url, width: qrInnerSize, height: qrInnerSize, correctLevel: QRCode.CorrectLevel.M });
+    const qr = new QRCode(holder, { text: url, width: 400, height: 400, correctLevel: QRCode.CorrectLevel.M });
     setTimeout(() => {
+      let nCount = 25;
+      try { nCount = qr._oQRCode.getModuleCount(); } catch(e){}
+      const marginModules = 4;
+      const totalModules = nCount + marginModules * 2;
+      const marginPx = Math.round(finalWidth * (marginModules / totalModules));
+      const qrPatternSize = finalWidth - marginPx * 2;
+      const bandHeight = Math.round(finalWidth * 0.25);
+      const finalHeight = finalWidth + bandHeight;
+
       const qrCanvas = holder.querySelector('canvas');
       const final = document.createElement('canvas');
-      final.width = size;
-      final.height = size;
+      final.width = finalWidth;
+      final.height = finalHeight;
       const ctx = final.getContext('2d');
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, size, size);
-      const marginSide = Math.round((size - qrInnerSize) / 2);
-      ctx.drawImage(qrCanvas, marginSide, marginSide, qrInnerSize, qrInnerSize);
+      ctx.fillRect(0, 0, finalWidth, finalHeight);
+      ctx.drawImage(qrCanvas, marginPx, marginPx, qrPatternSize, qrPatternSize);
+
       const label = String(numero).padStart(2, '0');
-      const bottomBandTop = marginSide + qrInnerSize;
-      const bottomBandHeight = size - bottomBandTop;
+      const bandTop = finalWidth;
+      const fontSize = Math.max(24, Math.round(bandHeight * 0.72));
       ctx.fillStyle = '#000000';
-      const fontSize = Math.max(14, Math.round(bottomBandHeight * 0.62));
       ctx.font = `bold ${fontSize}px Arial, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(label, size / 2, bottomBandTop + bottomBandHeight / 2);
+      ctx.fillText(label, finalWidth / 2, bandTop + bandHeight / 2);
+
       document.body.removeChild(holder);
       resolve(final);
-    }, 40);
+    }, 50);
   });
 }
 
