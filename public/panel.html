@@ -160,6 +160,21 @@
   .domain-btn:active{background:var(--paper);}
   .domain-btn.active{border-color:var(--navy);background:#eaf1fd;color:var(--navy);}
   .domain-btn .check{color:var(--green);font-weight:800;}
+
+  /* ---------- fidelizacion + cobros ---------- */
+  .switch{position:relative;display:inline-block;width:42px;height:24px;flex:none;}
+  .switch input{opacity:0;width:0;height:0;position:absolute;}
+  .switch .slider{position:absolute;cursor:pointer;inset:0;background:#d3d9e5;border-radius:24px;transition:.2s;}
+  .switch .slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:white;border-radius:50%;transition:.2s;}
+  .switch input:checked + .slider{background:var(--green);}
+  .switch input:checked + .slider:before{transform:translateX(18px);}
+  .cobro-row{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px;}
+  .cobro-row-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}
+  .cobro-badge{padding:3px 9px;border-radius:20px;font-size:10.5px;font-weight:700;display:inline-block;}
+  .cobro-badge-pendiente{background:#eef1f6;color:var(--muted);}
+  .cobro-badge-solicitado{background:#fff2e0;color:var(--amber);}
+  .cobro-badge-vencido_suspendido{background:#fdecec;color:var(--red);}
+  .cobro-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
 </style>
 </head>
 <body>
@@ -182,6 +197,8 @@
       <button onclick="openDominioModal()">Dominio</button>
       <button onclick="openEmpresasModal()">Empresas</button>
       <button onclick="openMayoristasModal()">Mayoristas</button>
+      <button onclick="openFidelizacionModal()">Fidelización</button>
+      <button onclick="openCobrosModal()">Cobros</button>
       <button onclick="logout()">Salir</button>
     </div>
   </div>
@@ -276,6 +293,11 @@
     <div class="field">
       <label>Link de destino (a dónde redirige el tap/QR)</label>
       <input type="text" id="asignarDestino" placeholder="Link de reseñas de Google, WhatsApp, etc.">
+      <div class="field-hint">¿Ya tenés el Place ID de Google Maps? <button type="button" class="helper-link" onclick="togglePlaceIdHelper()">Pegalo acá y te armo el link</button></div>
+      <div id="placeIdHelperBox" style="display:none;margin-top:8px;padding:10px;background:var(--paper);border-radius:8px;">
+        <input type="text" id="placeIdInput" placeholder="Ej: ChIJIYlgxqCvXZQRVPoD2xYcozI" style="margin-bottom:8px;">
+        <button type="button" class="btn btn-secondary btn-sm btn-block" onclick="usarPlaceId()">Armar el link de reseña</button>
+      </div>
     </div>
     <div class="field">
       <label>Etiqueta interna (opcional)</label>
@@ -358,10 +380,82 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modalFidelizacion">
+  <div class="modal">
+    <h3>Fidelización</h3>
+    <div class="modal-sub">Comercios con el club de puntos activado. Elegí uno para configurarlo, o inscribí uno nuevo.</div>
+    <div id="fidComerciosList"></div>
+    <h3 style="font-size:14px;margin-top:18px;">Inscribir comercio nuevo</h3>
+    <div class="field">
+      <label>Empresa</label>
+      <select id="fidNuevoClientId"></select>
+    </div>
+    <div class="field">
+      <label>Usuario para su panel</label>
+      <input type="text" id="fidNuevoUsuario" placeholder="Ej: heladeriamarni">
+    </div>
+    <div class="field">
+      <label>Contraseña</label>
+      <input type="text" id="fidNuevoPassword" placeholder="Definila vos, se la pasás por WhatsApp">
+    </div>
+    <div class="field">
+      <label>Niveles</label>
+      <input type="number" id="fidNuevoNiveles" value="5" min="1" max="10">
+    </div>
+    <div class="field">
+      <label>Monedas por nivel</label>
+      <input type="number" id="fidNuevoMonedas" value="10" min="1" max="50">
+    </div>
+    <div class="field">
+      <label>Validez del cupón (días)</label>
+      <input type="number" id="fidNuevoValidez" value="90" min="1" max="365">
+    </div>
+    <div class="field">
+      <label>Cuota mensual (Gs.)</label>
+      <input type="number" id="fidNuevoMonto" placeholder="Ej: 50000">
+    </div>
+    <div class="field-hint" style="margin-bottom:14px;">Cargá el premio de cada nivel después de crearlo, desde "Configurar". Al inscribir se crean automáticamente las 2 tarjetas NFC (inscripción y puntos) para grabar.</div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modalFidelizacion')">Cerrar</button>
+      <button class="btn btn-primary" onclick="submitFidInscribir()">Inscribir</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalFidConfig">
+  <div class="modal">
+    <h3 id="fidConfigTitle">Configurar</h3>
+    <div class="modal-sub">Ajustá el programa de este comercio. Los cambios se ven al toque en su panel y en la tarjeta del cliente.</div>
+    <div class="field"><label>Niveles</label><input type="number" id="fidConfigNiveles" min="1" max="10"></div>
+    <div class="field"><label>Monedas por nivel</label><input type="number" id="fidConfigMonedas" min="1" max="50"></div>
+    <div class="field">
+      <label>Validez del cupón (días)</label>
+      <input type="number" id="fidConfigValidez" min="1" max="365">
+      <div class="field-hint" id="fidConfigValidezHint"></div>
+    </div>
+    <div id="fidConfigPremios"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modalFidConfig')">Cerrar</button>
+      <button class="btn btn-primary" onclick="submitFidConfigGuardar()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalCobros">
+  <div class="modal" style="max-width:640px;">
+    <h3>Cobros de fidelización</h3>
+    <div class="modal-sub">Ordenado por vencimiento. "Solicitar pago" abre WhatsApp con el mensaje armado y arranca los 3 días de gracia. El switch prende/apaga el sistema para ese comercio en el momento.</div>
+    <div id="cobrosList"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary btn-block" onclick="closeModal('modalCobros')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
-let STATE = { chips: [], lotes: [], clients: [], distribuidores: [], selectedChipIds: new Set(), activeChipForQr: null, activeChipForAssign: null, dominioActivo: '' };
+let STATE = { chips: [], lotes: [], clients: [], distribuidores: [], selectedChipIds: new Set(), activeChipForQr: null, qrDownloadName: null, activeChipForAssign: null, dominioActivo: '', fidComercios: [], cobros: [], fidComercioActivo: null };
 
 async function doLogin(){
   const password = document.getElementById('loginPassword').value;
@@ -379,7 +473,7 @@ async function doLogin(){
 function logout(){ document.cookie = 'panel_auth=; Path=/; Max-Age=0'; location.reload(); }
 
 async function initApp(){
-  await Promise.all([loadLotes(), loadClients(), loadChips(), loadDominio()]);
+  await Promise.all([loadLotes(), loadClients(), loadChips(), loadDominio(), loadFidComercios()]);
   renderStatStrip();
 }
 
@@ -645,6 +739,18 @@ function toggleClienteMode(){
   document.getElementById('clienteExistenteBox').style.display = mode==='existente' ? 'block' : 'none';
   document.getElementById('clienteNuevoBox').style.display = mode==='nuevo' ? 'block' : 'none';
 }
+function togglePlaceIdHelper(){
+  const box = document.getElementById('placeIdHelperBox');
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+function usarPlaceId(){
+  const id = document.getElementById('placeIdInput').value.trim();
+  if(!id){ toast('Pegá el Place ID primero', true); return; }
+  document.getElementById('asignarDestino').value = `https://search.google.com/local/writereview?placeid=${encodeURIComponent(id)}`;
+  document.getElementById('placeIdInput').value = '';
+  document.getElementById('placeIdHelperBox').style.display = 'none';
+  toast('Link armado automáticamente');
+}
 async function submitAsignar(){
   const mode = document.querySelector('input[name=clienteMode]:checked').value;
   const destino = document.getElementById('asignarDestino').value.trim();
@@ -756,13 +862,27 @@ async function showQr(slug, numero){
   box.appendChild(canvas);
   document.getElementById('qrModalLink').textContent = url;
   STATE.activeChipForQr = numero;
+  STATE.qrDownloadName = String(numero).padStart(3,'0');
+  document.getElementById('modalQr').classList.add('open');
+}
+async function showQrFid(slug, titulo, downloadName, label){
+  const url = linkParaQr(slug);
+  document.getElementById('qrModalTitle').textContent = titulo;
+  const box = document.getElementById('qrModalCanvas');
+  box.innerHTML = '';
+  const canvas = await generateNumberedQrCanvas(url, label || '', 260);
+  box.appendChild(canvas);
+  document.getElementById('qrModalLink').textContent = url;
+  STATE.activeChipForQr = null;
+  STATE.qrDownloadName = downloadName;
   document.getElementById('modalQr').classList.add('open');
 }
 function downloadQr(){
   const canvas = document.querySelector('#qrModalCanvas canvas');
   if(!canvas) return;
   const link = document.createElement('a');
-  link.download = `${String(STATE.activeChipForQr).padStart(3,'0')}.png`;
+  const nombre = STATE.qrDownloadName || (STATE.activeChipForQr!=null ? String(STATE.activeChipForQr).padStart(3,'0') : 'tapy-qr');
+  link.download = `${nombre}.png`;
   link.href = canvas.toDataURL('image/png');
   link.click();
 }
@@ -975,6 +1095,217 @@ async function transferirLoteCompleto(){
   STATE.selectedChipIds = new Set(chipIds);
   updateSelectionBar();
   openTransferirModal();
+}
+
+// ---------- FIDELIZACION ----------
+async function loadFidComercios(){
+  try{ STATE.fidComercios = await apiFetch('/api/fidelizacion/comercios'); }catch(e){ STATE.fidComercios = []; }
+}
+function openFidelizacionModal(){
+  refreshFidClientSelect();
+  document.getElementById('fidNuevoUsuario').value = '';
+  document.getElementById('fidNuevoPassword').value = '';
+  document.getElementById('fidNuevoNiveles').value = 5;
+  document.getElementById('fidNuevoMonedas').value = 10;
+  document.getElementById('fidNuevoValidez').value = 90;
+  document.getElementById('fidNuevoMonto').value = '';
+  renderFidComerciosList();
+  document.getElementById('modalFidelizacion').classList.add('open');
+}
+function refreshFidClientSelect(){
+  const real = STATE.clients.filter(c=>c.name !== 'STOCK - Sin Asignar');
+  const yaInscriptos = new Set(STATE.fidComercios.map(f=>f.client_id));
+  const disponibles = real.filter(c=>!yaInscriptos.has(c.id));
+  document.getElementById('fidNuevoClientId').innerHTML = disponibles.length
+    ? disponibles.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')
+    : '<option value="">— No hay empresas disponibles —</option>';
+}
+function renderFidComerciosList(){
+  const box = document.getElementById('fidComerciosList');
+  if(!STATE.fidComercios.length){
+    box.innerHTML = '<div class="empty-state"><div class="big">Todavía no inscribiste ningún comercio</div>Cargá el primero abajo.</div>';
+    return;
+  }
+  box.innerHTML = STATE.fidComercios.map(f=>`
+    <div class="empresa-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <div class="empresa-info">
+          <b>${f.client_name}</b>
+          <span>${f.clientes_total||0} cliente(s) · ${f.niveles} niveles · ${f.monedas_por_nivel} monedas/nivel${f.pendientes_canje>0 ? ' · <b style="color:var(--amber)">'+f.pendientes_canje+' por canjear</b>' : ''}</span>
+          <span>Usuario del panel: <b>${f.usuario||'—'}</b></span>
+          <span class="badge badge-${f.estado==='activo'?'activo':'suspendido'}" style="margin-top:4px;">${f.estado==='activo'?'Activo':'Suspendido'}</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="openFidConfigModal(${f.id})">Configurar</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-secondary btn-sm" ${f.slug_inscripcion?'':'disabled'} onclick="showQrFid('${f.slug_inscripcion}', 'Tarjeta de inscripción — ${(f.client_name||'').replace(/'/g,"\\'")}', 'fid-${f.id}-inscripcion', 'IN')">Ver QR inscripción</button>
+        <button class="btn btn-secondary btn-sm" ${f.slug_inscripcion?'':'disabled'} onclick="copiarLinkNfc('${f.slug_inscripcion}')">Copiar link inscripción</button>
+        <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="showQrFid('${f.slug_puntos}', 'Tarjeta de puntos — ${(f.client_name||'').replace(/'/g,"\\'")}', 'fid-${f.id}-puntos', 'PT')">Ver QR puntos</button>
+        <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="copiarLinkNfc('${f.slug_puntos}')">Copiar link puntos</button>
+      </div>
+    </div>
+  `).join('');
+}
+async function submitFidInscribir(){
+  const client_id = document.getElementById('fidNuevoClientId').value;
+  const usuario = document.getElementById('fidNuevoUsuario').value.trim();
+  const password = document.getElementById('fidNuevoPassword').value.trim();
+  const niveles = parseInt(document.getElementById('fidNuevoNiveles').value, 10);
+  const monedas_por_nivel = parseInt(document.getElementById('fidNuevoMonedas').value, 10);
+  const validez_dias = parseInt(document.getElementById('fidNuevoValidez').value, 10);
+  const montoRaw = document.getElementById('fidNuevoMonto').value;
+  const monto_mensual = montoRaw ? parseFloat(montoRaw) : null;
+  if(!client_id){ toast('Elegí una empresa', true); return; }
+  if(!usuario || !password){ toast('Completá usuario y contraseña del panel del comercio', true); return; }
+  try{
+    await apiFetch('/api/fidelizacion/comercios', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ client_id, usuario, password, niveles, monedas_por_nivel, validez_dias, monto_mensual })
+    });
+  }catch(e){ return; }
+  toast('Comercio inscripto en fidelización. Ya se crearon sus 2 tarjetas NFC.');
+  await loadFidComercios();
+  renderFidComerciosList();
+  refreshFidClientSelect();
+}
+
+async function openFidConfigModal(comercioId){
+  STATE.fidComercioActivo = comercioId;
+  const f = STATE.fidComercios.find(x=>x.id===comercioId);
+  if(!f) return;
+  document.getElementById('fidConfigTitle').textContent = 'Configurar — ' + f.client_name;
+  document.getElementById('fidConfigNiveles').value = f.niveles;
+  document.getElementById('fidConfigMonedas').value = f.monedas_por_nivel;
+  document.getElementById('fidConfigValidez').value = f.validez_dias;
+  document.getElementById('fidConfigValidezHint').textContent = f.validez_editada_por_comercio
+    ? 'El comercio ya usó su cambio gratuito de este campo. Si lo modificás vos acá no le consume otro cambio a él.'
+    : 'El comercio todavía tiene disponible su primer cambio gratuito de este campo.';
+
+  let premios = [];
+  try{ premios = await apiFetch(`/api/fidelizacion/comercios/${comercioId}/premios`); }catch(e){ premios = []; }
+  const premiosPorNivel = {};
+  premios.forEach(p=>{ premiosPorNivel[p.nivel] = p.descripcion; });
+
+  let html = '<div class="field"><label>Premios por nivel</label></div>';
+  for(let n=1; n<=f.niveles; n++){
+    const val = (premiosPorNivel[n]||'').replace(/"/g,'&quot;');
+    html += `<div class="field"><input type="text" id="fidPremioNivel${n}" placeholder="Premio del nivel ${n}" value="${val}"></div>`;
+  }
+  document.getElementById('fidConfigPremios').innerHTML = html;
+  document.getElementById('modalFidConfig').classList.add('open');
+}
+async function submitFidConfigGuardar(){
+  const id = STATE.fidComercioActivo;
+  if(!id) return;
+  const niveles = parseInt(document.getElementById('fidConfigNiveles').value, 10);
+  const monedas_por_nivel = parseInt(document.getElementById('fidConfigMonedas').value, 10);
+  const validez_dias = parseInt(document.getElementById('fidConfigValidez').value, 10);
+  try{
+    await apiFetch(`/api/fidelizacion/comercios/${id}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ niveles, monedas_por_nivel, validez_dias })
+    });
+    const premios = [];
+    for(let n=1; n<=niveles; n++){
+      const input = document.getElementById('fidPremioNivel'+n);
+      if(input && input.value.trim()) premios.push({ nivel:n, descripcion: input.value.trim() });
+    }
+    if(premios.length){
+      await apiFetch(`/api/fidelizacion/comercios/${id}/premios`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ premios })
+      });
+    }
+  }catch(e){ return; }
+  toast('Configuración guardada');
+  closeModal('modalFidConfig');
+  await loadFidComercios();
+  renderFidComerciosList();
+}
+
+// ---------- COBROS ----------
+async function loadCobros(){
+  try{ STATE.cobros = await apiFetch('/api/cobros'); }catch(e){ STATE.cobros = []; }
+}
+function openCobrosModal(){
+  loadCobros().then(renderCobrosList);
+  document.getElementById('modalCobros').classList.add('open');
+}
+function cobroBadgeLabel(estado){
+  if(estado==='solicitado') return 'En gracia (3 días)';
+  if(estado==='vencido_suspendido') return 'Vencido — sistema apagado';
+  return 'Pendiente';
+}
+function mensajeSolicitarPago(row){
+  const mesTxt = new Date(row.fecha_vencimiento+'T00:00:00').toLocaleDateString('es-PY', {month:'long', year:'numeric'});
+  const monto = row.monto ? `Gs. ${Number(row.monto).toLocaleString('es-PY')}` : 'a confirmar';
+  return `Hola ${row.comercio_nombre}! Te escribimos de Tapy por el cobro de ${mesTxt}. Actualmente tenés ${row.clientes_actuales||0} clientes registrados en tu fidelización. Monto: ${monto}. Tenés 3 días corridos desde este mensaje para regularizar el pago antes de que el sistema se desactive automáticamente. Podés transferir a - Alias: Cédula: 5201390, Banco: GNB, Nombre: Enzo Caballero. ¡Gracias!`;
+}
+function mensajePagoConfirmado(row){
+  const mesTxt = new Date(row.fecha_vencimiento+'T00:00:00').toLocaleDateString('es-PY', {month:'long', year:'numeric'});
+  const hoyTxt = new Date().toLocaleDateString('es-PY');
+  return `¡Gracias ${row.comercio_nombre}! Confirmamos tu pago de ${mesTxt}, recibido el ${hoyTxt}. Tu cuenta en Tapy sigue al día. ¡Éxitos este mes!`;
+}
+function abrirWhatsapp(numero, mensaje){
+  const limpio = (numero||'').replace(/[^\d]/g,'');
+  if(!limpio){ toast('Este comercio no tiene WhatsApp cargado', true); return; }
+  window.open(`https://wa.me/${limpio}?text=${encodeURIComponent(mensaje)}`, '_blank');
+}
+function renderCobrosList(){
+  const box = document.getElementById('cobrosList');
+  if(!STATE.cobros.length){
+    box.innerHTML = '<div class="empty-state"><div class="big">No hay cobros pendientes</div>Todo al día.</div>';
+    return;
+  }
+  box.innerHTML = STATE.cobros.map(row=>`
+    <div class="cobro-row">
+      <div class="cobro-row-top">
+        <div>
+          <b>${row.comercio_nombre}</b>
+          <div class="field-hint">Vence: ${row.fecha_vencimiento} · ${row.monto ? ('Gs. '+Number(row.monto).toLocaleString('es-PY')) : 'monto sin definir'}</div>
+        </div>
+        <label class="switch" title="Encender / apagar el sistema para este comercio">
+          <input type="checkbox" ${row.comercio_estado==='activo'?'checked':''} onchange="toggleComercioEstado(${row.comercio_id}, this.checked)">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <span class="cobro-badge cobro-badge-${row.estado}">${cobroBadgeLabel(row.estado)}</span>
+      <div class="cobro-actions">
+        <button class="btn btn-secondary btn-sm" onclick="solicitarPago(${row.id})">Solicitar pago</button>
+        <button class="btn btn-primary btn-sm" onclick="marcarPagado(${row.id})">Pagado</button>
+      </div>
+    </div>
+  `).join('');
+}
+async function solicitarPago(id){
+  const row = STATE.cobros.find(r=>r.id===id);
+  if(!row) return;
+  try{ await apiFetch(`/api/cobros/${id}/solicitar`, {method:'POST'}); }catch(e){ return; }
+  abrirWhatsapp(row.comercio_whatsapp, mensajeSolicitarPago(row));
+  toast('Solicitud registrada, arrancaron los 3 días de gracia');
+  await loadCobros();
+  renderCobrosList();
+}
+async function marcarPagado(id){
+  const row = STATE.cobros.find(r=>r.id===id);
+  if(!row) return;
+  try{ await apiFetch(`/api/cobros/${id}/pagado`, {method:'POST'}); }catch(e){ return; }
+  abrirWhatsapp(row.comercio_whatsapp, mensajePagoConfirmado(row));
+  toast('Pago confirmado, próximo período generado');
+  await loadCobros();
+  renderCobrosList();
+  await loadFidComercios();
+}
+async function toggleComercioEstado(comercioId, activo){
+  try{
+    await apiFetch(`/api/fidelizacion/comercios/${comercioId}/estado`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ estado: activo ? 'activo' : 'suspendido' })
+    });
+  }catch(e){ await loadCobros(); renderCobrosList(); return; }
+  toast(activo ? 'Comercio reactivado' : 'Comercio suspendido');
+  await Promise.all([loadCobros(), loadFidComercios()]);
+  renderCobrosList();
 }
 
 (async function checkSession(){

@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Panel de Fidelización — Tapy</title>
+<style>
+  :root{
+    --navy:#0d2f6e;
+    --navy-deep:#081f4d;
+    --orange:#e8622c;
+    --paper:#f5f7fb;
+    --white:#ffffff;
+    --line:#dfe6f2;
+    --ink:#16233f;
+    --muted:#64748b;
+    --green:#1a9e6b;
+    --red:#d63b3b;
+    --amber:#c9820a;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html{-webkit-text-size-adjust:100%;}
+  body{margin:0;font-family:'Segoe UI',Arial,sans-serif;background:var(--paper);color:var(--ink);}
+
+  #loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--navy);padding:20px;}
+  .login-box{background:white;padding:36px 30px;border-radius:16px;width:100%;max-width:320px;box-shadow:0 20px 60px rgba(0,0,0,.3);}
+  .login-box h1{margin:0 0 4px;font-size:22px;color:var(--navy);}
+  .login-box p{margin:0 0 22px;color:var(--muted);font-size:13.5px;}
+  .login-box input{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;font-size:16px;margin-bottom:12px;}
+  .login-box button{width:100%;padding:13px;border:none;border-radius:9px;background:var(--orange);color:white;font-weight:700;font-size:15px;cursor:pointer;}
+  .login-error{color:var(--red);font-size:12.5px;margin:-4px 0 10px;min-height:14px;}
+
+  #app{display:none;min-height:100vh;}
+  .topbar{background:var(--navy);color:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10;flex-wrap:wrap;gap:8px;}
+  .brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:17px;}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--orange);flex:none;}
+  .topbar-actions{display:flex;gap:8px;flex-wrap:wrap;}
+  .topbar button{background:transparent;border:1px solid rgba(255,255,255,.35);color:white;padding:8px 13px;border-radius:8px;cursor:pointer;font-size:12.5px;white-space:nowrap;}
+  .topbar button:active{background:rgba(255,255,255,.15);}
+  .estado-pill{font-size:11px;padding:6px 10px;border-radius:20px;font-weight:700;}
+  .estado-pill-activo{background:rgba(26,158,107,.18);color:#bdf3d8;}
+  .estado-pill-suspendido{background:rgba(214,59,59,.25);color:#ffd6d6;}
+
+  .content{padding:16px;max-width:1100px;margin:0 auto;}
+  .row-between{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;}
+  h2{font-size:18px;color:var(--navy);margin:0;}
+  .subtitle{color:var(--muted);font-size:12.5px;margin-top:2px;}
+
+  .btn{padding:11px 16px;border-radius:9px;border:none;font-weight:700;font-size:13.5px;cursor:pointer;min-height:42px;}
+  .btn-primary{background:var(--orange);color:white;}
+  .btn-primary:active{filter:brightness(.95);}
+  .btn-secondary{background:white;color:var(--navy);border:1px solid var(--line);}
+  .btn-secondary:active{background:var(--paper);}
+  .btn-whatsapp{background:#e7f8ee;color:#1a9e6b;border:1px solid #bfeed4;}
+  .btn-whatsapp:active{background:#d7f3e3;}
+  .btn:disabled{opacity:.45;cursor:not-allowed;}
+  .btn-sm{padding:8px 12px;font-size:12px;border-radius:7px;min-height:36px;}
+  .btn-block{width:100%;}
+
+  .stat-strip{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:18px;}
+  .stat-card{background:white;border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
+  .stat-card .num{font-size:21px;font-weight:800;color:var(--navy);}
+  .stat-card .lbl{font-size:11px;color:var(--muted);margin-top:2px;}
+  @media(min-width:700px){ .stat-strip{grid-template-columns:repeat(3,1fr);} }
+
+  .filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;}
+  .filter-bar input[type=text]{padding:10px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:white;min-height:42px;flex:2;min-width:180px;}
+
+  .table-wrap{display:none;}
+  .card-list{display:flex;flex-direction:column;gap:10px;}
+  @media(min-width:860px){
+    .table-wrap{display:block;background:white;border:1px solid var(--line);border-radius:12px;overflow:hidden;overflow-x:auto;}
+    .card-list{display:none;}
+    table{width:100%;border-collapse:collapse;font-size:13.5px;}
+    th{text-align:left;padding:10px 14px;background:var(--paper);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--line);white-space:nowrap;}
+    td{padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:middle;}
+    tr:last-child td{border-bottom:none;}
+    tr:hover td{background:#fafbfe;}
+  }
+
+  .cliente-card{background:white;border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .cliente-card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:8px;}
+  .cliente-card-row{font-size:13px;color:var(--muted);margin-bottom:3px;}
+  .cliente-card-row b{color:var(--ink);}
+  .cliente-card-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+  .cliente-card-actions .btn{flex:1;min-width:110px;}
+
+  .badge{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;display:inline-block;}
+  .badge-pendiente{background:#fff2e0;color:var(--amber);}
+  .badge-progreso{background:#eaf1fd;color:var(--navy);}
+  .empty-state{padding:40px 20px;text-align:center;color:var(--muted);}
+  .empty-state .big{font-size:15px;color:var(--ink);font-weight:700;margin-bottom:4px;}
+
+  .progress-box{min-width:120px;}
+  .progress-bar-outer{height:8px;background:var(--paper);border-radius:6px;overflow:hidden;border:1px solid var(--line);}
+  .progress-bar-inner{height:100%;background:var(--orange);border-radius:6px;}
+  .progress-txt{font-size:11px;color:var(--muted);margin-top:3px;}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(8,20,50,.55);z-index:100;align-items:flex-end;justify-content:center;padding:0;}
+  .modal-overlay.open{display:flex;}
+  .modal{background:white;border-radius:16px 16px 0 0;padding:22px 20px calc(22px + env(safe-area-inset-bottom));width:100%;max-width:520px;max-height:92vh;overflow-y:auto;}
+  @media(min-width:640px){
+    .modal-overlay{align-items:center;padding:20px;}
+    .modal{border-radius:16px;padding:26px;max-height:90vh;}
+  }
+  .modal h3{margin:0 0 4px;color:var(--navy);font-size:17px;}
+  .modal .modal-sub{color:var(--muted);font-size:12.5px;margin-bottom:18px;}
+  .field{margin-bottom:13px;}
+  .field label{display:block;font-size:12.5px;font-weight:700;color:var(--ink);margin-bottom:5px;}
+  .field input, .field select, .field textarea{width:100%;padding:11px;border:1px solid var(--line);border-radius:8px;font-size:16px;font-family:inherit;min-height:44px;}
+  .field textarea{min-height:60px;resize:vertical;}
+  .field-hint{font-size:11px;color:var(--muted);margin-top:4px;}
+  .field-locked{background:#f1f3f7;color:var(--muted);}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;position:sticky;bottom:0;background:white;padding-top:8px;}
+  .modal-actions .btn{flex:1;}
+
+  .premio-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .premio-row .premio-nivel{width:34px;height:34px;min-width:34px;border-radius:50%;background:var(--navy);color:white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;}
+  .premio-row input{flex:1;}
+
+  .toast{position:fixed;bottom:20px;left:16px;right:16px;background:var(--navy);color:white;padding:13px 18px;border-radius:10px;font-size:13.5px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.2);display:none;z-index:200;text-align:center;}
+  @media(min-width:640px){ .toast{left:auto;right:20px;max-width:360px;} }
+  .toast.show{display:block;}
+  .toast.error{background:var(--red);}
+
+  .suspendido-banner{background:#fdecec;border:1px solid #f3c6c1;color:var(--red);border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:16px;font-weight:600;}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-box">
+    <h1>Panel de Fidelización</h1>
+    <p>Ingresá tu usuario y contraseña de comercio</p>
+    <input type="text" id="loginUsuario" placeholder="Usuario" autocomplete="username">
+    <input type="password" id="loginPassword" placeholder="Contraseña" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    <div class="login-error" id="loginError"></div>
+    <button onclick="doLogin()">Entrar</button>
+  </div>
+</div>
+
+<div id="app">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><span id="brandName">Mi club de fidelidad</span></div>
+    <div class="topbar-actions">
+      <span class="estado-pill estado-pill-activo" id="estadoPill">activo</span>
+      <button onclick="openConfigModal()">Configuración</button>
+      <button onclick="logout()">Salir</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <div id="suspendidoBanner" class="suspendido-banner" style="display:none;">
+      Tu club de fidelidad está desactivado por falta de pago. Tus clientes no pueden sumar monedas ni inscribirse hasta que se regularice. Escribinos a Tapy si ya pagaste.
+    </div>
+
+    <div class="row-between">
+      <div>
+        <h2>Tus clientes</h2>
+        <div class="subtitle">Ordenados primero los que ya completaron un nivel y están esperando su premio.</div>
+      </div>
+    </div>
+
+    <div class="stat-strip" id="statStrip"></div>
+
+    <div class="filter-bar">
+      <input type="text" id="filterSearch" placeholder="Buscar por nombre o WhatsApp..." oninput="renderClientesList()">
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Cliente</th><th>WhatsApp</th><th>Nivel</th><th>Progreso</th><th>Estado</th><th>Acciones</th></tr>
+        </thead>
+        <tbody id="clientesTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card-list" id="clientesCardList"></div>
+
+    <div class="empty-state" id="clientesEmpty" style="display:none;">
+      <div class="big">Todavía no tenés clientes</div>
+      En cuanto alguien toque la tarjeta de inscripción, va a aparecer acá.
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalConfig">
+  <div class="modal">
+    <h3>Configuración de tu club</h3>
+    <div class="modal-sub">Ajustá los niveles, cuántas monedas hacen falta por nivel y los premios de cada uno.</div>
+
+    <div class="field">
+      <label>Cantidad de niveles</label>
+      <input type="number" id="cfgNiveles" min="1" max="20">
+    </div>
+    <div class="field">
+      <label>Monedas necesarias por nivel</label>
+      <input type="number" id="cfgMonedasPorNivel" min="1" max="100">
+    </div>
+    <div class="field">
+      <label>Validez del cupón (días desde la inscripción)</label>
+      <input type="number" id="cfgValidezDias" min="1" max="3650">
+      <div class="field-hint" id="cfgValidezHint">Podés cambiar esto una sola vez. Si ya lo usaste, escribile a Tapy para que te lo actualice.</div>
+    </div>
+
+    <h3 style="font-size:14px;margin-top:18px;">Premios por nivel</h3>
+    <div class="modal-sub">Escribí libremente el premio de cada nivel, cuando quieras.</div>
+    <div id="premiosList"></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modalConfig')">Cancelar</button>
+      <button class="btn btn-primary" onclick="submitConfig()">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var STATE = { comercio: null, clientes: [] };
+
+// ---------- LOGIN ----------
+
+async function doLogin(){
+  const usuario = document.getElementById('loginUsuario').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errBox = document.getElementById('loginError');
+  errBox.textContent = '';
+  if(!usuario || !password){ errBox.textContent = 'Completá usuario y contraseña'; return; }
+  try{
+    const res = await fetch('/api/comercio/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({usuario, password})});
+    const data = await res.json();
+    if(!res.ok){ errBox.textContent = data.error || 'Error al ingresar'; return; }
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    initApp();
+  }catch(e){ errBox.textContent = 'No se pudo conectar. Revisá tu conexión.'; }
+}
+function logout(){ document.cookie = 'comercio_auth=; Path=/; Max-Age=0'; location.reload(); }
+
+async function initApp(){
+  await loadMe();
+  await loadClientes();
+}
+
+function toast(msg, isError){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(()=> t.className='toast', 3200);
+}
+
+async function apiFetch(url, options){
+  let res, data;
+  try{
+    res = await fetch(url, options);
+  }catch(e){
+    toast('No se pudo conectar con el servidor', true);
+    throw e;
+  }
+  try{ data = await res.json(); }catch(e){ data = {}; }
+  if(!res.ok){
+    const msg = (data && data.error) ? data.error : `Error ${res.status}`;
+    toast(msg, true);
+    const err = new Error(msg);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+// ---------- DATOS ----------
+
+async function loadMe(){
+  STATE.comercio = await apiFetch('/api/comercio/me');
+  document.getElementById('brandName').textContent = STATE.comercio.nombre ? `${STATE.comercio.nombre} — Fidelización` : 'Mi club de fidelidad';
+  const pill = document.getElementById('estadoPill');
+  const suspendido = STATE.comercio.estado === 'suspendido';
+  pill.textContent = suspendido ? 'suspendido' : 'activo';
+  pill.className = 'estado-pill ' + (suspendido ? 'estado-pill-suspendido' : 'estado-pill-activo');
+  document.getElementById('suspendidoBanner').style.display = suspendido ? 'block' : 'none';
+}
+
+async function loadClientes(){
+  STATE.clientes = await apiFetch('/api/comercio/clientes');
+  renderStatStrip();
+  renderClientesList();
+}
+
+function renderStatStrip(){
+  const total = STATE.clientes.length;
+  const pendientes = STATE.clientes.filter(c=>c.pendiente_canje).length;
+  const activos30 = STATE.clientes.filter(c=>{
+    if(!c.ultimo_tap) return false;
+    const dias = (Date.now() - new Date(c.ultimo_tap+'Z').getTime()) / 86400000;
+    return dias <= 30;
+  }).length;
+  document.getElementById('statStrip').innerHTML = `
+    <div class="stat-card"><div class="num">${total}</div><div class="lbl">Clientes totales</div></div>
+    <div class="stat-card"><div class="num">${pendientes}</div><div class="lbl">Esperando canjear premio</div></div>
+    <div class="stat-card"><div class="num">${activos30}</div><div class="lbl">Activos últimos 30 días</div></div>
+  `;
+}
+
+function nivelBadge(c){
+  if(c.pendiente_canje) return `<span class="badge badge-pendiente">Nivel ${c.nivel_actual} completo</span>`;
+  return `<span class="badge badge-progreso">En progreso</span>`;
+}
+
+function progresoHtml(c){
+  const totalNecesario = (STATE.comercio && STATE.comercio.monedas_por_nivel) || 1;
+  const pct = Math.min(100, Math.round((c.monedas_actuales / totalNecesario) * 100));
+  return `
+    <div class="progress-box">
+      <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:${pct}%;"></div></div>
+      <div class="progress-txt">${c.monedas_actuales}/${totalNecesario} monedas</div>
+    </div>
+  `;
+}
+
+function clientesFiltrados(){
+  const q = (document.getElementById('filterSearch').value || '').toLowerCase().trim();
+  if(!q) return STATE.clientes;
+  return STATE.clientes.filter(c =>
+    (c.nombre||'').toLowerCase().includes(q) || (c.whatsapp||'').toLowerCase().includes(q)
+  );
+}
+
+function renderClientesList(){
+  const lista = clientesFiltrados();
+  const tbody = document.getElementById('clientesTableBody');
+  const cardList = document.getElementById('clientesCardList');
+  const empty = document.getElementById('clientesEmpty');
+
+  if(!lista.length){
+    tbody.innerHTML = '';
+    cardList.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  tbody.innerHTML = lista.map(c => `
+    <tr>
+      <td><b>${escapeHtml(c.nombre)}</b></td>
+      <td>${escapeHtml(c.whatsapp || '—')}</td>
+      <td>Nivel ${c.nivel_actual}</td>
+      <td>${progresoHtml(c)}</td>
+      <td>${nivelBadge(c)}</td>
+      <td>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          ${c.pendiente_canje ? `<button class="btn btn-primary btn-sm" onclick="canjear(${c.id})">Subir de nivel</button>` : ''}
+          <button class="btn btn-whatsapp btn-sm" onclick="nudgeWhatsapp(${c.id})">WhatsApp</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+
+  cardList.innerHTML = lista.map(c => `
+    <div class="cliente-card">
+      <div class="cliente-card-top">
+        <div>
+          <b>${escapeHtml(c.nombre)}</b>
+          <div class="cliente-card-row">${escapeHtml(c.whatsapp || 'Sin WhatsApp')}</div>
+        </div>
+        ${nivelBadge(c)}
+      </div>
+      <div class="cliente-card-row"><b>Nivel actual:</b> ${c.nivel_actual}</div>
+      ${progresoHtml(c)}
+      <div class="cliente-card-actions">
+        ${c.pendiente_canje ? `<button class="btn btn-primary" onclick="canjear(${c.id})">Subir de nivel</button>` : ''}
+        <button class="btn btn-whatsapp" onclick="nudgeWhatsapp(${c.id})">WhatsApp</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function escapeHtml(str){
+  return String(str==null ? '' : str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+}
+
+// ---------- CANJEAR / SUBIR DE NIVEL ----------
+
+async function canjear(clienteId){
+  const cliente = STATE.clientes.find(c => c.id === clienteId);
+  if(!cliente) return;
+  if(!confirm(`¿Confirmás que ${cliente.nombre} ya recibió su premio del nivel ${cliente.nivel_actual}? Esto lo sube al nivel siguiente y reinicia sus monedas.`)) return;
+  try{
+    const res = await apiFetch(`/api/comercio/clientes/${clienteId}/canjear`, {method:'POST'});
+    toast(`¡Listo! ${cliente.nombre} ahora está en el nivel ${res.nuevo_nivel}.`);
+    await loadClientes();
+    const numero = (cliente.whatsapp||'').replace(/[^\d]/g,'');
+    if(numero){
+      const msg = `¡Hola ${cliente.nombre}! Subiste de nivel en nuestro club de fidelidad 🎉 Ahora estás en el nivel ${res.nuevo_nivel}. ¡Gracias por seguir viniendo!`;
+      window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank');
+    }
+  }catch(e){}
+}
+
+function nudgeWhatsapp(clienteId){
+  const c = STATE.clientes.find(x => x.id === clienteId);
+  if(!c) return;
+  const numero = (c.whatsapp||'').replace(/[^\d]/g,'');
+  if(!numero){ toast('Este cliente no tiene WhatsApp cargado', true); return; }
+  const totalNecesario = (STATE.comercio && STATE.comercio.monedas_por_nivel) || 1;
+  let msg;
+  if(c.pendiente_canje){
+    msg = `¡Hola ${c.nombre}! Ya completaste el nivel ${c.nivel_actual} en nuestro club de fidelidad. Pasá cuando quieras a retirar tu premio.`;
+  } else {
+    msg = `¡Hola ${c.nombre}! Te faltan ${Math.max(0, totalNecesario - c.monedas_actuales)} monedas para tu próximo premio en nuestro club de fidelidad. ¡Te esperamos!`;
+  }
+  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+// ---------- CONFIGURACION ----------
+
+async function openConfigModal(){
+  try{
+    const [me, premios] = await Promise.all([
+      apiFetch('/api/comercio/me'),
+      apiFetch('/api/comercio/premios')
+    ]);
+    STATE.comercio = me;
+    document.getElementById('cfgNiveles').value = me.niveles;
+    document.getElementById('cfgMonedasPorNivel').value = me.monedas_por_nivel;
+    document.getElementById('cfgValidezDias').value = me.validez_dias;
+
+    const validezInput = document.getElementById('cfgValidezDias');
+    const hint = document.getElementById('cfgValidezHint');
+    if(me.validez_editada_por_comercio){
+      validezInput.disabled = true;
+      validezInput.classList.add('field-locked');
+      hint.textContent = 'Ya usaste tu único cambio gratuito de la validez. Escribile a Tapy para actualizarlo.';
+    } else {
+      validezInput.disabled = false;
+      validezInput.classList.remove('field-locked');
+      hint.textContent = 'Podés cambiar esto una sola vez. Después vas a necesitar el ok de Tapy.';
+    }
+
+    renderPremiosInputs(me.niveles, premios);
+    document.getElementById('modalConfig').classList.add('open');
+  }catch(e){}
+}
+
+function renderPremiosInputs(niveles, premiosExistentes){
+  const map = {};
+  (premiosExistentes||[]).forEach(p => { map[p.nivel] = p.descripcion; });
+  const box = document.getElementById('premiosList');
+  let html = '';
+  for(let n = 1; n <= niveles; n++){
+    html += `
+      <div class="premio-row">
+        <div class="premio-nivel">${n}</div>
+        <input type="text" id="premioNivel${n}" placeholder="Ej: Cono doble gratis" value="${escapeHtml(map[n] || '')}">
+      </div>
+    `;
+  }
+  box.innerHTML = html;
+}
+
+document.addEventListener('input', function(e){
+  if(e.target && e.target.id === 'cfgNiveles'){
+    const n = parseInt(e.target.value, 10) || 1;
+    const box = document.getElementById('premiosList');
+    if(box){
+      const actuales = {};
+      box.querySelectorAll('input').forEach(inp => {
+        const m = inp.id.match(/^premioNivel(\d+)$/);
+        if(m) actuales[m[1]] = inp.value;
+      });
+      renderPremiosInputs(n, Object.keys(actuales).map(k => ({nivel: Number(k), descripcion: actuales[k]})));
+    }
+  }
+});
+
+async function submitConfig(){
+  try{
+    const niveles = parseInt(document.getElementById('cfgNiveles').value, 10);
+    const monedasPorNivel = parseInt(document.getElementById('cfgMonedasPorNivel').value, 10);
+    if(!niveles || niveles < 1){ toast('Poné una cantidad de niveles válida', true); return; }
+    if(!monedasPorNivel || monedasPorNivel < 1){ toast('Poné una cantidad de monedas válida', true); return; }
+
+    const configBody = { niveles, monedas_por_nivel: monedasPorNivel };
+    const validezInput = document.getElementById('cfgValidezDias');
+    if(!validezInput.disabled){
+      const validezDias = parseInt(validezInput.value, 10);
+      if(validezDias && validezDias > 0) configBody.validez_dias = validezDias;
+    }
+    await apiFetch('/api/comercio/config', {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(configBody)});
+
+    const premios = [];
+    for(let n = 1; n <= niveles; n++){
+      const inp = document.getElementById(`premioNivel${n}`);
+      if(inp) premios.push({ nivel: n, descripcion: inp.value || '' });
+    }
+    await apiFetch('/api/comercio/premios', {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({premios})});
+
+    toast('Configuración guardada');
+    closeModal('modalConfig');
+    await loadMe();
+    await loadClientes();
+  }catch(e){}
+}
+
+// ---------- MODALES ----------
+
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+document.addEventListener('click', function(e){
+  if(e.target.classList && e.target.classList.contains('modal-overlay')) e.target.classList.remove('open');
+});
+
+// ---------- INICIO ----------
+
+(function checkExistingSession(){
+  fetch('/api/comercio/me').then(res => {
+    if(res.ok){
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      initApp();
+    }
+  }).catch(()=>{});
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Club de fidelidad</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{margin:0;background:#0B1B3A;font-family:'Manrope',sans-serif;min-height:100vh;}
+  input:focus{border-color:#FF7A29;}
+  .tapy-btn:active{opacity:0.9;}
+  .tapy-btn:disabled{opacity:0.5;}
+  .screen{width:100%;max-width:430px;margin:0 auto;min-height:100vh;box-sizing:border-box;background:#0B1B3A;display:flex;flex-direction:column;overflow:hidden;}
+  .error-txt{color:#D63B3B;font-size:12px;margin:-4px 0 4px;min-height:14px;}
+</style>
+</head>
+<body>
+
+<div class="screen" id="formScreen">
+  <div style="height:244px;min-height:244px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;box-sizing:border-box;">
+    <div style="width:64px;height:64px;border-radius:20px;background:#FF7A29;display:flex;align-items:center;justify-content:center;">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#0B1B3A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 3"></path><path d="M9 3.5c1-.3 2-.5 3-.5s2 .2 3 .5"></path></svg>
+    </div>
+    <div style="text-align:center;">
+      <div style="font-family:'Fredoka',sans-serif;font-weight:700;font-size:20px;color:#FFFFFF;" id="negocioNombreTxt">Cargando...</div>
+      <div style="font-family:'Manrope',sans-serif;font-weight:600;font-size:12px;color:#9FB0D1;letter-spacing:0.3px;">Club de fidelidad &middot; con Tapy</div>
+    </div>
+  </div>
+
+  <div style="flex-grow:1;background:#FFFFFF;border-radius:28px 28px 0 0;padding:32px 26px 24px 26px;box-sizing:border-box;display:flex;flex-direction:column;gap:14px;">
+
+    <div>
+      <h1 style="margin:0 0 8px 0;font-family:'Fredoka',sans-serif;font-weight:700;font-size:24px;line-height:1.25;color:#0B1B3A;">¡Sumate a nuestro club!</h1>
+      <p style="margin:0;font-family:'Manrope',sans-serif;font-size:13.5px;line-height:1.5;color:#5B6472;">Registrate una sola vez y empezá a juntar monedas en cada visita, desde cualquier celular.</p>
+    </div>
+
+    <label style="display:flex;flex-direction:column;gap:6px;">
+      <span style="font-family:'Manrope',sans-serif;font-weight:700;font-size:12px;color:#0B1B3A;">Nombre</span>
+      <input type="text" id="inpNombre" placeholder="¿Cómo te llamás?" style="padding:13px 14px;border:1.5px solid #E6E9EF;border-radius:12px;font-family:'Manrope',sans-serif;font-size:16px;color:#0B1B3A;outline:none;box-sizing:border-box;">
+    </label>
+
+    <label style="display:flex;flex-direction:column;gap:6px;">
+      <span style="font-family:'Manrope',sans-serif;font-weight:700;font-size:12px;color:#0B1B3A;">WhatsApp</span>
+      <input type="tel" id="inpWhatsapp" placeholder="+595 9__ ___ ___" style="padding:13px 14px;border:1.5px solid #E6E9EF;border-radius:12px;font-family:'Manrope',sans-serif;font-size:16px;color:#0B1B3A;outline:none;box-sizing:border-box;">
+      <span style="font-family:'Manrope',sans-serif;font-size:11.5px;color:#9AA3B0;">Con esto vas a poder entrar a tu cuenta desde cualquier celular.</span>
+    </label>
+
+    <label style="display:flex;align-items:flex-start;gap:10px;">
+      <input type="checkbox" id="inpAcepta" checked style="margin-top:3px;width:17px;height:17px;accent-color:#FF7A29;">
+      <span style="font-family:'Manrope',sans-serif;font-size:12px;line-height:1.5;color:#5B6472;">Acepto guardar mis datos para sumar puntos y recibir novedades por WhatsApp.</span>
+    </label>
+
+    <div class="error-txt" id="formError"></div>
+
+    <button class="tapy-btn" id="btnEnviar" onclick="inscribir()" style="margin-top:4px;padding:15px;background:#FF7A29;color:#FFFFFF;border:none;border-radius:14px;font-family:'Manrope',sans-serif;font-weight:700;font-size:15px;cursor:pointer;">Empezar a sumar monedas</button>
+
+    <span style="text-align:center;font-family:'Manrope',sans-serif;font-size:11px;color:#B6BCC6;">Powered by Tapy</span>
+  </div>
+</div>
+
+<div class="screen" id="successScreen" style="display:none;align-items:center;justify-content:center;">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:24px;text-align:center;">
+    <div style="width:88px;height:88px;border-radius:50%;background:#2FAE66;display:flex;align-items:center;justify-content:center;">
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+    </div>
+    <div style="font-family:'Fredoka',sans-serif;font-weight:700;font-size:22px;color:#FFFFFF;">¡Listo, <span id="successNombre"></span>!</div>
+    <div style="font-family:'Manrope',sans-serif;font-size:14px;color:#9FB0D1;max-width:300px;">Ya quedaste inscripto en el club de <span id="successNegocio"></span>. La próxima vez que vengas, tocá la otra tarjeta para sumar tu primera moneda.</div>
+  </div>
+</div>
+
+<div class="screen" id="suspendidoScreen" style="display:none;align-items:center;justify-content:center;">
+  <div style="padding:24px;text-align:center;">
+    <div style="font-family:'Fredoka',sans-serif;font-weight:700;font-size:19px;color:#FFFFFF;margin-bottom:8px;">Club no disponible</div>
+    <div style="font-family:'Manrope',sans-serif;font-size:13.5px;color:#9FB0D1;">Este comercio no tiene el club de fidelidad activo en este momento. Volvé a intentarlo más tarde.</div>
+  </div>
+</div>
+
+<script>
+function getSlug(){
+  const params = new URLSearchParams(window.location.search);
+  return params.get('c') || '';
+}
+const SLUG = getSlug();
+
+async function cargarInfo(){
+  if(!SLUG){
+    document.getElementById('negocioNombreTxt').textContent = 'Tarjeta no reconocida';
+    return;
+  }
+  try{
+    const res = await fetch(`/api/public/fidelizacion/info?slug=${encodeURIComponent(SLUG)}&tipo=inscripcion`);
+    const data = await res.json();
+    if(!res.ok){
+      document.getElementById('negocioNombreTxt').textContent = 'Tarjeta no reconocida';
+      return;
+    }
+    document.getElementById('negocioNombreTxt').textContent = data.nombre || 'Club de fidelidad';
+    if(!data.activo){
+      mostrarSuspendido();
+    }
+  }catch(e){
+    document.getElementById('negocioNombreTxt').textContent = 'Club de fidelidad';
+  }
+}
+
+function mostrarSuspendido(){
+  document.getElementById('formScreen').style.display = 'none';
+  document.getElementById('suspendidoScreen').style.display = 'flex';
+}
+
+async function inscribir(){
+  const nombre = document.getElementById('inpNombre').value.trim();
+  const whatsapp = document.getElementById('inpWhatsapp').value.trim();
+  const acepta = document.getElementById('inpAcepta').checked;
+  const errBox = document.getElementById('formError');
+  errBox.textContent = '';
+
+  if(!SLUG){ errBox.textContent = 'Tarjeta no reconocida'; return; }
+  if(!nombre){ errBox.textContent = 'Escribí tu nombre'; return; }
+  if(!whatsapp){ errBox.textContent = 'Escribí tu WhatsApp'; return; }
+  if(!acepta){ errBox.textContent = 'Necesitamos que aceptes para continuar'; return; }
+
+  const btn = document.getElementById('btnEnviar');
+  btn.disabled = true;
+  btn.textContent = 'Enviando...';
+
+  try{
+    const res = await fetch('/api/public/fidelizacion/inscribir', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ slug: SLUG, nombre, whatsapp, acepta })
+    });
+    const data = await res.json();
+    if(!res.ok){
+      if(data.error === 'suspendido'){ mostrarSuspendido(); return; }
+      errBox.textContent = data.mensaje || data.error || 'No se pudo completar la inscripción';
+      btn.disabled = false;
+      btn.textContent = 'Empezar a sumar monedas';
+      return;
+    }
+    document.getElementById('successNombre').textContent = data.nombre;
+    document.getElementById('successNegocio').textContent = data.negocio_nombre || 'este comercio';
+    document.getElementById('formScreen').style.display = 'none';
+    document.getElementById('successScreen').style.display = 'flex';
+  }catch(e){
+    errBox.textContent = 'No se pudo conectar. Revisá tu conexión e intentá de nuevo.';
+    btn.disabled = false;
+    btn.textContent = 'Empezar a sumar monedas';
+  }
+}
+
+cargarInfo();
+</script>
+</body>
+</html>

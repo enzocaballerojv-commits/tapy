@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Club de fidelidad</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{margin:0;background:#0B1B3A;font-family:'Manrope',sans-serif;min-height:100vh;}
+  input:focus{border-color:#FF7A29;}
+  .tapy-btn:active{opacity:0.9;}
+  .tapy-btn:disabled{opacity:0.5;}
+  .screen{width:100%;max-width:430px;margin:0 auto;min-height:100vh;box-sizing:border-box;background:#0B1B3A;display:flex;flex-direction:column;overflow:hidden;}
+  .error-txt{color:#D63B3B;font-size:12px;margin:-4px 0 4px;min-height:14px;}
+  .level-track{display:flex;align-items:center;justify-content:flex-start;padding:0 2px;overflow-x:auto;gap:0;}
+  .level-track::-webkit-scrollbar{display:none;}
+</style>
+</head>
+<body>
+
+<div class="screen" id="loadingScreen">
+  <div style="flex-grow:1;display:flex;align-items:center;justify-content:center;">
+    <div style="font-family:'Manrope',sans-serif;color:#9FB0D1;font-size:13px;">Cargando...</div>
+  </div>
+</div>
+
+<div class="screen" id="recoveryScreen" style="display:none;">
+  <div style="height:200px;min-height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;box-sizing:border-box;">
+    <div style="width:64px;height:64px;border-radius:20px;background:#FF7A29;display:flex;align-items:center;justify-content:center;">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#0B1B3A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5.2"></circle></svg>
+    </div>
+    <div style="text-align:center;">
+      <div style="font-family:'Fredoka',sans-serif;font-weight:700;font-size:18px;color:#FFFFFF;" id="recoveryNegocioTxt">Club de fidelidad</div>
+    </div>
+  </div>
+  <div style="flex-grow:1;background:#FFFFFF;border-radius:28px 28px 0 0;padding:32px 26px 24px 26px;box-sizing:border-box;display:flex;flex-direction:column;gap:14px;">
+    <div>
+      <h1 style="margin:0 0 8px 0;font-family:'Fredoka',sans-serif;font-weight:700;font-size:22px;line-height:1.25;color:#0B1B3A;">¿Cuál es tu WhatsApp?</h1>
+      <p style="margin:0;font-family:'Manrope',sans-serif;font-size:13.5px;line-height:1.5;color:#5B6472;">Es tu primera vez en este celular. Ingresá el WhatsApp con el que te registraste para sumar tu moneda.</p>
+    </div>
+    <label style="display:flex;flex-direction:column;gap:6px;">
+      <span style="font-family:'Manrope',sans-serif;font-weight:700;font-size:12px;color:#0B1B3A;">WhatsApp</span>
+      <input type="tel" id="inpRecoveryWhatsapp" placeholder="+595 9__ ___ ___" style="padding:13px 14px;border:1.5px solid #E6E9EF;border-radius:12px;font-family:'Manrope',sans-serif;font-size:16px;color:#0B1B3A;outline:none;box-sizing:border-box;">
+    </label>
+    <div class="error-txt" id="recoveryError"></div>
+    <button class="tapy-btn" id="btnRecovery" onclick="recuperarSesion()" style="margin-top:4px;padding:15px;background:#FF7A29;color:#FFFFFF;border:none;border-radius:14px;font-family:'Manrope',sans-serif;font-weight:700;font-size:15px;cursor:pointer;">Sumar mi moneda</button>
+    <span style="text-align:center;font-family:'Manrope',sans-serif;font-size:11px;color:#B6BCC6;">Powered by Tapy</span>
+  </div>
+</div>
+
+<div class="screen" id="resultScreen" style="display:none;">
+  <div style="padding:22px 24px 0 24px;display:flex;align-items:center;justify-content:space-between;box-sizing:border-box;">
+    <div>
+      <div style="font-family:'Fredoka',sans-serif;font-weight:700;font-size:16px;color:#FFFFFF;" id="resultNegocioTxt">&nbsp;</div>
+      <div style="font-family:'Manrope',sans-serif;font-weight:600;font-size:11px;color:#9FB0D1;">Club de fidelidad &middot; con Tapy</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:#142A57;border-radius:20px;">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2FAE66" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+      <span style="font-family:'Manrope',sans-serif;font-weight:700;font-size:11px;color:#FFFFFF;" id="resultClienteTxt">&nbsp;</span>
+    </div>
+  </div>
+
+  <div style="flex-grow:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px 24px;box-sizing:border-box;">
+    <div style="width:108px;height:108px;border-radius:50%;background:#FF7A29;display:flex;align-items:center;justify-content:center;position:relative;">
+      <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#0B1B3A" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"></circle><circle cx="12" cy="12" r="5.2"></circle><path d="M12 8.6v6.8M9.6 10.4h4.8M9.6 13.6h4.8" stroke-linecap="round"></path></svg>
+      <div id="plusOneBadge" style="display:none;position:absolute;top:-8px;right:-10px;width:34px;height:34px;border-radius:50%;background:#2FAE66;border:3px solid #0B1B3A;align-items:center;justify-content:center;font-family:'Manrope',sans-serif;font-weight:800;font-size:13px;color:#FFFFFF;">+1</div>
+    </div>
+    <div style="text-align:center;">
+      <div style="font-family:'Fredoka',sans-serif;font-weight:700;font-size:21px;color:#FFFFFF;" id="resultTitleTxt">&nbsp;</div>
+      <div style="font-family:'Manrope',sans-serif;font-size:13px;color:#9FB0D1;margin-top:4px;" id="resultSubTxt">&nbsp;</div>
+    </div>
+  </div>
+
+  <div style="background:#FFFFFF;border-radius:28px 28px 0 0;padding:26px 24px 22px 24px;box-sizing:border-box;display:flex;flex-direction:column;gap:16px;">
+
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-family:'Manrope',sans-serif;font-weight:800;font-size:14px;color:#0B1B3A;" id="nivelLabelTxt">Nivel 1</span>
+        <span style="font-family:'Manrope',sans-serif;font-weight:700;font-size:12px;color:#FF7A29;" id="progresoLabelTxt">0/10 monedas</span>
+      </div>
+      <div style="height:10px;background:#EEF0F3;border-radius:8px;overflow:hidden;">
+        <div id="progresoBarInner" style="width:0%;height:100%;background:#FF7A29;border-radius:8px;transition:width .3s;"></div>
+      </div>
+      <span style="font-family:'Manrope',sans-serif;font-size:12px;color:#5B6472;" id="progresoFaltanTxt">&nbsp;</span>
+    </div>
+
+    <div id="premioBox" style="display:flex;align-items:center;gap:12px;padding:13px 14px;background:#FFF8F3;border:1px solid #FFE1CB;border-radius:12px;">
+      <div style="width:36px;height:36px;min-width:36px;border-radius:10px;background:#FF7A29;display:flex;align-items:center;justify-content:center;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-7"></path><path d="M2 7h20v5H2z"></path><path d="M12 22V7"></path><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C10 2 12 7 12 7z"></path><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C14 2 12 7 12 7z"></path></svg>
+      </div>
+      <div>
+        <div style="font-family:'Manrope',sans-serif;font-weight:700;font-size:12px;color:#0B1B3A;" id="premioLabelTxt">Próximo premio</div>
+        <div style="font-family:'Manrope',sans-serif;font-size:12.5px;color:#5B6472;" id="premioTxt">&nbsp;</div>
+      </div>
+    </div>
+
+    <div class="level-track" id="levelTrack"></div>
+  </div>
+</div>
+
+<div class="screen" id="suspendidoScreen" style="display:none;align-items:center;justify-content:center;">
+  <div style="padding:24px;text-align:center;">
+    <div style="font-family:'Fredoka',sans-serif;font-weight:700;font-size:19px;color:#FFFFFF;margin-bottom:8px;">Club no disponible</div>
+    <div style="font-family:'Manrope',sans-serif;font-size:13.5px;color:#9FB0D1;">Este comercio no tiene el club de fidelidad activo en este momento. Volvé a intentarlo más tarde.</div>
+  </div>
+</div>
+
+<div class="screen" id="errorScreen" style="display:none;align-items:center;justify-content:center;">
+  <div style="padding:24px;text-align:center;">
+    <div style="font-family:'Fredoka',sans-serif;font-weight:700;font-size:19px;color:#FFFFFF;margin-bottom:8px;">Tarjeta no reconocida</div>
+    <div style="font-family:'Manrope',sans-serif;font-size:13.5px;color:#9FB0D1;" id="errorMsgTxt">Probá de nuevo o consultale al comercio.</div>
+  </div>
+</div>
+
+<script>
+function getSlug(){
+  const params = new URLSearchParams(window.location.search);
+  return params.get('c') || '';
+}
+const SLUG = getSlug();
+
+function showScreen(id){
+  ['loadingScreen','recoveryScreen','resultScreen','suspendidoScreen','errorScreen'].forEach(s=>{
+    document.getElementById(s).style.display = 'none';
+  });
+  document.getElementById(id).style.display = 'flex';
+}
+
+async function iniciar(){
+  if(!SLUG){
+    document.getElementById('errorMsgTxt').textContent = 'Esta tarjeta no tiene un comercio asociado.';
+    showScreen('errorScreen');
+    return;
+  }
+  try{
+    const res = await fetch('/api/public/fidelizacion/sumar', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ slug: SLUG })
+    });
+    const data = await res.json();
+    if(!res.ok){
+      if(data.error === 'suspendido'){ showScreen('suspendidoScreen'); return; }
+      document.getElementById('errorMsgTxt').textContent = data.mensaje || 'No pudimos reconocer esta tarjeta.';
+      showScreen('errorScreen');
+      return;
+    }
+    if(data.needsWhatsapp){
+      document.getElementById('recoveryNegocioTxt').textContent = data.negocio_nombre || 'Club de fidelidad';
+      showScreen('recoveryScreen');
+      return;
+    }
+    mostrarResultado(data);
+  }catch(e){
+    document.getElementById('errorMsgTxt').textContent = 'No se pudo conectar. Revisá tu conexión.';
+    showScreen('errorScreen');
+  }
+}
+
+async function recuperarSesion(){
+  const whatsapp = document.getElementById('inpRecoveryWhatsapp').value.trim();
+  const errBox = document.getElementById('recoveryError');
+  errBox.textContent = '';
+  if(!whatsapp){ errBox.textContent = 'Escribí tu WhatsApp'; return; }
+
+  const btn = document.getElementById('btnRecovery');
+  btn.disabled = true;
+  btn.textContent = 'Buscando...';
+
+  try{
+    const res = await fetch('/api/public/fidelizacion/recuperar-sesion', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ slug: SLUG, whatsapp })
+    });
+    const data = await res.json();
+    if(!res.ok){
+      if(data.error === 'suspendido'){ showScreen('suspendidoScreen'); return; }
+      errBox.textContent = data.mensaje || data.error || 'No pudimos encontrar tu cuenta';
+      btn.disabled = false;
+      btn.textContent = 'Sumar mi moneda';
+      return;
+    }
+    mostrarResultado(data);
+  }catch(e){
+    errBox.textContent = 'No se pudo conectar. Revisá tu conexión.';
+    btn.disabled = false;
+    btn.textContent = 'Sumar mi moneda';
+  }
+}
+
+function mostrarResultado(data){
+  document.getElementById('resultNegocioTxt').textContent = data.negocio_nombre || 'Club de fidelidad';
+  document.getElementById('resultClienteTxt').textContent = data.nombre || '';
+
+  const plusOne = document.getElementById('plusOneBadge');
+  const titleTxt = document.getElementById('resultTitleTxt');
+  const subTxt = document.getElementById('resultSubTxt');
+
+  if(data.sumo_moneda){
+    plusOne.style.display = 'flex';
+    titleTxt.textContent = '¡Sumaste una moneda!';
+    subTxt.textContent = `Gracias por volver, ${data.nombre}.`;
+  } else if(data.ya_sumaste){
+    plusOne.style.display = 'none';
+    titleTxt.textContent = 'Ya sumaste hoy';
+    subTxt.textContent = 'Volvé a tocar la tarjeta en tu próxima visita.';
+  } else if(data.nivel_completo || data.pendiente_canje){
+    plusOne.style.display = 'none';
+    titleTxt.textContent = '¡Nivel completo!';
+    subTxt.textContent = 'Mostrale esta pantalla al comercio para retirar tu premio.';
+  } else {
+    plusOne.style.display = 'none';
+    titleTxt.textContent = `Hola, ${data.nombre}`;
+    subTxt.textContent = 'Así vas hasta ahora.';
+  }
+
+  const niveles = data.niveles || 1;
+  const monedasPorNivel = data.monedas_por_nivel || 1;
+  const monedas = Math.min(data.monedas_actuales || 0, monedasPorNivel);
+  const pct = Math.round((monedas / monedasPorNivel) * 100);
+
+  document.getElementById('nivelLabelTxt').textContent = `Nivel ${data.nivel_actual}`;
+  document.getElementById('progresoLabelTxt').textContent = `${monedas}/${monedasPorNivel} monedas`;
+  document.getElementById('progresoBarInner').style.width = pct + '%';
+
+  if(data.pendiente_canje){
+    document.getElementById('progresoFaltanTxt').textContent = '¡Completaste este nivel! Pedí tu premio en el mostrador.';
+  } else {
+    const faltan = Math.max(0, monedasPorNivel - monedas);
+    document.getElementById('progresoFaltanTxt').textContent = faltan > 0
+      ? `Te faltan ${faltan} moneda${faltan===1?'':'s'} para tu próximo premio.`
+      : '¡Ya completaste este nivel!';
+  }
+
+  document.getElementById('premioLabelTxt').textContent = data.pendiente_canje ? 'Tu premio' : 'Próximo premio';
+  document.getElementById('premioTxt').textContent = data.premio_nivel_actual || 'Consultá con el comercio';
+
+  renderLevelTrack(niveles, data.nivel_actual);
+  showScreen('resultScreen');
+}
+
+function renderLevelTrack(niveles, nivelActual){
+  const track = document.getElementById('levelTrack');
+  let html = '';
+  for(let n = 1; n <= niveles; n++){
+    let circleStyle, textStyle, numColor;
+    if(n < nivelActual){
+      circleStyle = 'width:26px;height:26px;border-radius:50%;background:#0B1B3A;display:flex;align-items:center;justify-content:center;';
+      numColor = '#FFFFFF';
+      textStyle = 'font-family:\'Manrope\',sans-serif;font-size:9.5px;color:#5B6472;';
+    } else if(n === nivelActual){
+      circleStyle = 'width:30px;height:30px;border-radius:50%;background:#FF7A29;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 4px #FFE1CB;';
+      numColor = '#FFFFFF';
+      textStyle = 'font-family:\'Manrope\',sans-serif;font-weight:700;font-size:9.5px;color:#0B1B3A;';
+    } else {
+      circleStyle = 'width:26px;height:26px;border-radius:50%;background:#EEF0F3;display:flex;align-items:center;justify-content:center;';
+      numColor = '#9AA3B0';
+      textStyle = 'font-family:\'Manrope\',sans-serif;font-size:9.5px;color:#9AA3B0;';
+    }
+    html += `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:5px;min-width:44px;">
+        <div style="${circleStyle}"><span style="font-family:'Manrope',sans-serif;font-weight:800;font-size:11px;color:${numColor};">${n}</span></div>
+        <span style="${textStyle}">Nivel ${n}</span>
+      </div>`;
+    if(n < niveles){
+      const lineColor = n < nivelActual ? '#0B1B3A' : '#E6E9EF';
+      html += `<div style="flex-grow:1;min-width:14px;height:2px;background:${lineColor};margin:0 2px;margin-bottom:15px;"></div>`;
+    }
+  }
+  track.innerHTML = html;
+}
+
+iniciar();
+</script>
+</body>
+</html>
