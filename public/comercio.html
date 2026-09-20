@@ -383,6 +383,14 @@ function escapeHtml(str){
 
 // ---------- CANJEAR / SUBIR DE NIVEL ----------
 
+function numeroWhatsappInternacional(numero){
+  let limpio = (numero||'').replace(/[^\d]/g,'');
+  if(!limpio) return '';
+  if(limpio.startsWith('595')) return limpio; // ya viene en formato internacional
+  if(limpio.startsWith('0')) limpio = limpio.slice(1); // 0981613925 -> 981613925
+  return '595' + limpio;
+}
+
 async function canjear(clienteId){
   const cliente = STATE.clientes.find(c => c.id === clienteId);
   if(!cliente) return;
@@ -391,7 +399,7 @@ async function canjear(clienteId){
     const res = await apiFetch(`/api/comercio/clientes/${clienteId}/canjear`, {method:'POST'});
     toast(`¡Listo! ${cliente.nombre} ahora está en el nivel ${res.nuevo_nivel}.`);
     await loadClientes();
-    const numero = (cliente.whatsapp||'').replace(/[^\d]/g,'');
+    const numero = numeroWhatsappInternacional(cliente.whatsapp);
     if(numero){
       const msg = `¡Hola ${cliente.nombre}! Subiste de nivel en nuestro club de fidelidad 🎉 Ahora estás en el nivel ${res.nuevo_nivel}. ¡Gracias por seguir viniendo!`;
       window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -402,7 +410,7 @@ async function canjear(clienteId){
 function nudgeWhatsapp(clienteId){
   const c = STATE.clientes.find(x => x.id === clienteId);
   if(!c) return;
-  const numero = (c.whatsapp||'').replace(/[^\d]/g,'');
+  const numero = numeroWhatsappInternacional(c.whatsapp);
   if(!numero){ toast('Este cliente no tiene WhatsApp cargado', true); return; }
   const totalNecesario = (STATE.comercio && STATE.comercio.monedas_por_nivel) || 1;
   let msg;

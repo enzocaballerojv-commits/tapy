@@ -94,6 +94,7 @@
   .badge-sin_asignar{background:#fff2e0;color:var(--amber);}
   .badge-activo{background:#e4f7ee;color:var(--green);}
   .badge-suspendido{background:#fdecec;color:var(--red);}
+  .badge-fidelizacion{background:#efe6fb;color:#6d28d9;margin-left:4px;}
   .actions-cell{display:flex;gap:6px;flex-wrap:wrap;}
   .empty-state{padding:40px 20px;text-align:center;color:var(--muted);}
   .empty-state .big{font-size:15px;color:var(--ink);font-weight:700;margin-bottom:4px;}
@@ -109,6 +110,9 @@
 
   .modal-overlay{display:none;position:fixed;inset:0;background:rgba(8,20,50,.55);z-index:100;align-items:flex-end;justify-content:center;padding:0;}
   .modal-overlay.open{display:flex;}
+  /* El QR se puede abrir desde adentro de otro modal (ej. Fidelización), asi que siempre debe quedar por encima */
+  .modal-overlay#modalQr{z-index:300;align-items:center;padding:16px;}
+  .modal-overlay#modalQr .modal{width:min(320px, 92vw);border-radius:16px;}
   .modal{background:white;border-radius:16px 16px 0 0;padding:22px 20px calc(22px + env(safe-area-inset-bottom));width:100%;max-width:480px;max-height:92vh;overflow-y:auto;}
   @media(min-width:640px){
     .modal-overlay{align-items:center;padding:20px;}
@@ -657,6 +661,12 @@ function qrActionsHtml(c){
   </div>`;
 }
 
+function fidelizacionBadgeHtml(c){
+  if (c.tipo === 'fidelizacion_inscripcion') return '<span class="badge badge-fidelizacion">Fidelización · Inscripción</span>';
+  if (c.tipo === 'fidelizacion_puntos') return '<span class="badge badge-fidelizacion">Fidelización · Puntos</span>';
+  return '';
+}
+
 function rowHtml(c){
   const isStock = isStockOf(c);
   const checked = STATE.selectedChipIds.has(c.id) ? 'checked' : '';
@@ -665,7 +675,7 @@ function rowHtml(c){
     <td class="chk-cell"><input type="checkbox" class="chip-checkbox" data-chipid="${c.id}" ${checked} onchange="toggleChipSelected(${c.id}, this.checked)"></td>
     <td class="num-cell">${String(c.numero_lote).padStart(3,'0')}</td>
     <td class="mono">${c.slug}</td>
-    <td><span class="badge badge-${c.status}">${statusLabelOf(c)}</span></td>
+    <td><span class="badge badge-${c.status}">${statusLabelOf(c)}</span>${fidelizacionBadgeHtml(c)}</td>
     <td>${c.distribuidor_nombre ? `<span class="mayorista-badge">${c.distribuidor_nombre}</span>` : '<span class="stock-dash">—</span>'}</td>
     <td>${isStock ? '<span class="stock-dash">— sin asignar —</span>' : `<span class="empresa-name">${c.client_name||'—'}</span>`}</td>
     <td>${isStock ? '—' : (c.client_contact_name||'<span class="stock-dash">sin nombre</span>')}</td>
@@ -686,7 +696,7 @@ function cardHtml(c){
         <input type="checkbox" class="chip-checkbox" ${checked} onchange="toggleChipSelected(${c.id}, this.checked)">
         <div class="num-cell">#${String(c.numero_lote).padStart(3,'0')} <span class="mono">${c.slug}</span></div>
       </label>
-      <span class="badge badge-${c.status}">${statusLabelOf(c)}</span>
+      <span class="badge badge-${c.status}">${statusLabelOf(c)}</span>${fidelizacionBadgeHtml(c)}
     </div>
     ${c.distribuidor_nombre ? `<div class="chip-card-row"><span class="mayorista-badge">${c.distribuidor_nombre}</span></div>` : ''}
     ${isStock
@@ -1130,7 +1140,7 @@ async function loadFidComercios(){
 async function loadFidChipsLibres(){
   try{ STATE.fidChipsLibres = await apiFetch('/api/fidelizacion/chips-libres'); }catch(e){ STATE.fidChipsLibres = []; }
 }
-function openFidelizacionModal(){
+function resetFidForm(){
   document.querySelector('input[name="fidClienteMode"][value="existente"]').checked = true;
   toggleFidClienteMode();
   refreshFidClientSelect();
@@ -1144,6 +1154,9 @@ function openFidelizacionModal(){
   document.getElementById('fidNuevoMonedas').value = 10;
   document.getElementById('fidNuevoValidez').value = 90;
   document.getElementById('fidNuevoMonto').value = '';
+}
+function openFidelizacionModal(){
+  resetFidForm();
   renderFidComerciosList();
   loadFidChipsLibres().then(refreshFidChipSelects);
   document.getElementById('modalFidelizacion').classList.add('open');
@@ -1246,6 +1259,7 @@ async function submitFidInscribir(){
     });
   }catch(e){ return; }
   toast('Comercio inscripto en fidelización. Ya se asignaron sus 2 tarjetas.');
+  resetFidForm();
   await Promise.all([loadClients(), loadFidComercios(), loadFidChipsLibres()]);
   renderFidComerciosList();
   refreshFidClientSelect();
@@ -1339,8 +1353,15 @@ function mensajePagoConfirmado(row){
   const hoyTxt = new Date().toLocaleDateString('es-PY');
   return `¡Gracias ${row.comercio_nombre}! Confirmamos tu pago de ${mesTxt}, recibido el ${hoyTxt}. Tu cuenta en Tapy sigue al día. ¡Éxitos este mes!`;
 }
+function numeroWhatsappInternacional(numero){
+  let limpio = (numero||'').replace(/[^\d]/g,'');
+  if(!limpio) return '';
+  if(limpio.startsWith('595')) return limpio; // ya viene en formato internacional
+  if(limpio.startsWith('0')) limpio = limpio.slice(1); // 0981613925 -> 981613925
+  return '595' + limpio;
+}
 function abrirWhatsapp(numero, mensaje){
-  const limpio = (numero||'').replace(/[^\d]/g,'');
+  const limpio = numeroWhatsappInternacional(numero);
   if(!limpio){ toast('Este comercio no tiene WhatsApp cargado', true); return; }
   window.open(`https://wa.me/${limpio}?text=${encodeURIComponent(mensaje)}`, '_blank');
 }
