@@ -386,10 +386,24 @@
     <div class="modal-sub">Comercios con el club de puntos activado. Elegí uno para configurarlo, o inscribí uno nuevo.</div>
     <div id="fidComerciosList"></div>
     <h3 style="font-size:14px;margin-top:18px;">Inscribir comercio nuevo</h3>
-    <div class="field">
+
+    <div class="radio-toggle">
+      <label><input type="radio" name="fidClienteMode" value="existente" checked onchange="toggleFidClienteMode()"><span>Empresa existente</span></label>
+      <label><input type="radio" name="fidClienteMode" value="nuevo" onchange="toggleFidClienteMode()"><span>Empresa nueva</span></label>
+    </div>
+
+    <div id="fidClienteExistenteBox" class="field">
       <label>Empresa</label>
       <select id="fidNuevoClientId"></select>
     </div>
+
+    <div id="fidClienteNuevoBox" style="display:none;">
+      <div class="field"><label>Nombre de la empresa</label><input type="text" id="fidNuevoEmpresaNombre" placeholder="Ej: Heladería Marni"></div>
+      <div class="field"><label>Rubro</label><input type="text" id="fidNuevoEmpresaRubro" placeholder="Ej: heladería, cafetería..."></div>
+      <div class="field"><label>Nombre del contacto</label><input type="text" id="fidNuevoEmpresaContacto" placeholder="Ej: María González (dueña)"></div>
+      <div class="field"><label>WhatsApp del contacto</label><input type="text" id="fidNuevoEmpresaWhatsapp" placeholder="Ej: 0981123456"></div>
+    </div>
+
     <div class="field">
       <label>Usuario para su panel</label>
       <input type="text" id="fidNuevoUsuario" placeholder="Ej: heladeriamarni">
@@ -414,7 +428,19 @@
       <label>Cuota mensual (Gs.)</label>
       <input type="number" id="fidNuevoMonto" placeholder="Ej: 50000">
     </div>
-    <div class="field-hint" style="margin-bottom:14px;">Cargá el premio de cada nivel después de crearlo, desde "Configurar". Al inscribir se crean automáticamente las 2 tarjetas NFC (inscripción y puntos) para grabar.</div>
+
+    <h3 style="font-size:14px;margin-top:14px;">Tarjetas NFC / QR de este comercio</h3>
+    <div class="modal-sub">Elegí 2 chips libres de tu stock (los mismos que ya usás para reseñas) para tener control de tu inventario. Si dejás "Generar automáticamente", el sistema crea 2 tarjetas virtuales nuevas sin usar stock.</div>
+    <div class="field">
+      <label>Tarjeta de inscripción</label>
+      <select id="fidNuevoChipInscripcion"></select>
+    </div>
+    <div class="field">
+      <label>Tarjeta de puntos</label>
+      <select id="fidNuevoChipPuntos"></select>
+    </div>
+
+    <div class="field-hint" style="margin-bottom:14px;">Cargá el premio de cada nivel después de crearlo, desde "Configurar".</div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('modalFidelizacion')">Cerrar</button>
       <button class="btn btn-primary" onclick="submitFidInscribir()">Inscribir</button>
@@ -455,7 +481,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-let STATE = { chips: [], lotes: [], clients: [], distribuidores: [], selectedChipIds: new Set(), activeChipForQr: null, qrDownloadName: null, activeChipForAssign: null, dominioActivo: '', fidComercios: [], cobros: [], fidComercioActivo: null };
+let STATE = { chips: [], lotes: [], clients: [], distribuidores: [], selectedChipIds: new Set(), activeChipForQr: null, qrDownloadName: null, activeChipForAssign: null, dominioActivo: '', fidComercios: [], fidChipsLibres: [], cobros: [], fidComercioActivo: null };
 
 async function doLogin(){
   const password = document.getElementById('loginPassword').value;
@@ -1101,8 +1127,17 @@ async function transferirLoteCompleto(){
 async function loadFidComercios(){
   try{ STATE.fidComercios = await apiFetch('/api/fidelizacion/comercios'); }catch(e){ STATE.fidComercios = []; }
 }
+async function loadFidChipsLibres(){
+  try{ STATE.fidChipsLibres = await apiFetch('/api/fidelizacion/chips-libres'); }catch(e){ STATE.fidChipsLibres = []; }
+}
 function openFidelizacionModal(){
+  document.querySelector('input[name="fidClienteMode"][value="existente"]').checked = true;
+  toggleFidClienteMode();
   refreshFidClientSelect();
+  document.getElementById('fidNuevoEmpresaNombre').value = '';
+  document.getElementById('fidNuevoEmpresaRubro').value = '';
+  document.getElementById('fidNuevoEmpresaContacto').value = '';
+  document.getElementById('fidNuevoEmpresaWhatsapp').value = '';
   document.getElementById('fidNuevoUsuario').value = '';
   document.getElementById('fidNuevoPassword').value = '';
   document.getElementById('fidNuevoNiveles').value = 5;
@@ -1110,7 +1145,13 @@ function openFidelizacionModal(){
   document.getElementById('fidNuevoValidez').value = 90;
   document.getElementById('fidNuevoMonto').value = '';
   renderFidComerciosList();
+  loadFidChipsLibres().then(refreshFidChipSelects);
   document.getElementById('modalFidelizacion').classList.add('open');
+}
+function toggleFidClienteMode(){
+  const modo = document.querySelector('input[name="fidClienteMode"]:checked').value;
+  document.getElementById('fidClienteExistenteBox').style.display = modo === 'existente' ? 'block' : 'none';
+  document.getElementById('fidClienteNuevoBox').style.display = modo === 'nuevo' ? 'block' : 'none';
 }
 function refreshFidClientSelect(){
   const real = STATE.clients.filter(c=>c.name !== 'STOCK - Sin Asignar');
@@ -1119,6 +1160,13 @@ function refreshFidClientSelect(){
   document.getElementById('fidNuevoClientId').innerHTML = disponibles.length
     ? disponibles.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')
     : '<option value="">— No hay empresas disponibles —</option>';
+}
+function refreshFidChipSelects(){
+  const libres = STATE.fidChipsLibres || [];
+  const opciones = '<option value="">— Generar automáticamente (chip virtual) —</option>' +
+    libres.map(c=>`<option value="${c.id}">#${String(c.numero_lote||0).padStart(3,'0')} — ${c.slug}</option>`).join('');
+  document.getElementById('fidNuevoChipInscripcion').innerHTML = opciones;
+  document.getElementById('fidNuevoChipPuntos').innerHTML = opciones;
 }
 function renderFidComerciosList(){
   const box = document.getElementById('fidComerciosList');
@@ -1142,12 +1190,13 @@ function renderFidComerciosList(){
         <button class="btn btn-secondary btn-sm" ${f.slug_inscripcion?'':'disabled'} onclick="copiarLinkNfc('${f.slug_inscripcion}')">Copiar link inscripción</button>
         <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="showQrFid('${f.slug_puntos}', 'Tarjeta de puntos — ${(f.client_name||'').replace(/'/g,"\\'")}', 'fid-${f.id}-puntos', 'PT')">Ver QR puntos</button>
         <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="copiarLinkNfc('${f.slug_puntos}')">Copiar link puntos</button>
+        <button class="btn btn-danger btn-sm" onclick="eliminarFidComercio(${f.id}, '${(f.client_name||'').replace(/'/g,"&#39;")}')">Quitar de fidelización</button>
       </div>
     </div>
   `).join('');
 }
 async function submitFidInscribir(){
-  const client_id = document.getElementById('fidNuevoClientId').value;
+  const modo = document.querySelector('input[name="fidClienteMode"]:checked').value;
   const usuario = document.getElementById('fidNuevoUsuario').value.trim();
   const password = document.getElementById('fidNuevoPassword').value.trim();
   const niveles = parseInt(document.getElementById('fidNuevoNiveles').value, 10);
@@ -1155,18 +1204,62 @@ async function submitFidInscribir(){
   const validez_dias = parseInt(document.getElementById('fidNuevoValidez').value, 10);
   const montoRaw = document.getElementById('fidNuevoMonto').value;
   const monto_mensual = montoRaw ? parseFloat(montoRaw) : null;
-  if(!client_id){ toast('Elegí una empresa', true); return; }
+  const chipInscripcionId = document.getElementById('fidNuevoChipInscripcion').value;
+  const chipPuntosId = document.getElementById('fidNuevoChipPuntos').value;
+
   if(!usuario || !password){ toast('Completá usuario y contraseña del panel del comercio', true); return; }
+  if(chipInscripcionId && chipPuntosId && chipInscripcionId === chipPuntosId){
+    toast('Elegí 2 tarjetas distintas para inscripción y puntos', true); return;
+  }
+
+  let client_id;
+  if(modo === 'nuevo'){
+    const nombre = document.getElementById('fidNuevoEmpresaNombre').value.trim();
+    if(!nombre){ toast('Escribí el nombre de la empresa nueva', true); return; }
+    try{
+      const nuevoCliente = await apiFetch('/api/clients', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          name: nombre,
+          business_type: document.getElementById('fidNuevoEmpresaRubro').value.trim() || null,
+          contact_name: document.getElementById('fidNuevoEmpresaContacto').value.trim() || null,
+          whatsapp: document.getElementById('fidNuevoEmpresaWhatsapp').value.trim() || null,
+          signup_date: new Date().toISOString().slice(0,10),
+          plan: 'fidelizacion'
+        })
+      });
+      client_id = nuevoCliente.id;
+    }catch(e){ return; }
+  } else {
+    client_id = document.getElementById('fidNuevoClientId').value;
+    if(!client_id){ toast('Elegí una empresa', true); return; }
+  }
+
+  const body = { client_id, usuario, password, niveles, monedas_por_nivel, validez_dias, monto_mensual };
+  if(chipInscripcionId) body.chip_inscripcion_id = chipInscripcionId;
+  if(chipPuntosId) body.chip_puntos_id = chipPuntosId;
+
   try{
     await apiFetch('/api/fidelizacion/comercios', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ client_id, usuario, password, niveles, monedas_por_nivel, validez_dias, monto_mensual })
+      body: JSON.stringify(body)
     });
   }catch(e){ return; }
-  toast('Comercio inscripto en fidelización. Ya se crearon sus 2 tarjetas NFC.');
-  await loadFidComercios();
+  toast('Comercio inscripto en fidelización. Ya se asignaron sus 2 tarjetas.');
+  await Promise.all([loadClients(), loadFidComercios(), loadFidChipsLibres()]);
   renderFidComerciosList();
   refreshFidClientSelect();
+  refreshFidChipSelects();
+}
+
+async function eliminarFidComercio(id, nombre){
+  if(!confirm(`¿Quitar a "${nombre}" de Fidelización? Se borran sus clientes, premios y cobros de este programa (la empresa en sí no se borra). Las 2 tarjetas NFC/QR vuelven a tu stock libre para reasignar.`)) return;
+  try{ await apiFetch(`/api/fidelizacion/comercios/${id}`, {method:'DELETE'}); }catch(e){ return; }
+  toast('Comercio quitado de fidelización. Sus 2 tarjetas volvieron a stock.');
+  await Promise.all([loadFidComercios(), loadFidChipsLibres(), loadChips()]);
+  renderFidComerciosList();
+  refreshFidClientSelect();
+  refreshFidChipSelects();
 }
 
 async function openFidConfigModal(comercioId){
