@@ -310,7 +310,7 @@ async function apiChipsList(request, env) {
          FROM taps
          GROUP BY chip_id
        ) taps_agg ON taps_agg.chip_id = chips.id
-       WHERE chips.tipo = 'resena'`;
+       WHERE 1=1`;
     const binds = [];
     if (statusFilter) {
       query += ` AND chips.status = ?`;
@@ -913,10 +913,21 @@ async function apiPublicComercioInfo(request, env) {
 }
 __name(apiPublicComercioInfo, "apiPublicComercioInfo");
 
+function normalizarWhatsapp(raw) {
+  // Guarda siempre el mismo formato sin importar como lo haya tipeado el cliente:
+  // "0981613925", "981 613 925", "+595981613925" y "595981613925" quedan todos como "981613925".
+  let limpio = String(raw || "").replace(/[^\d]/g, "");
+  if (limpio.startsWith("595")) limpio = limpio.slice(3);
+  if (limpio.startsWith("0")) limpio = limpio.slice(1);
+  return limpio;
+}
+__name(normalizarWhatsapp, "normalizarWhatsapp");
+
 async function apiPublicInscribir(request, env) {
   try {
     const body = await request.json();
-    const { slug, nombre, whatsapp, acepta } = body;
+    const { slug, nombre, acepta } = body;
+    const whatsapp = normalizarWhatsapp(body.whatsapp);
     if (!slug || !nombre || !whatsapp || !acepta) {
       return json({ error: "Faltan datos: nombre, whatsapp y la aceptación son obligatorios" }, 400);
     }
@@ -1062,7 +1073,8 @@ __name(apiPublicSumar, "apiPublicSumar");
 async function apiPublicRecuperarSesion(request, env) {
   try {
     const body = await request.json();
-    const { slug, whatsapp } = body;
+    const { slug } = body;
+    const whatsapp = normalizarWhatsapp(body.whatsapp);
     if (!slug || !whatsapp) return json({ error: "Falta el whatsapp" }, 400);
     const comercio = await findComercioByChipSlugYTipo(env, slug, "fidelizacion_puntos");
     if (!comercio) return json({ error: "Tarjeta no reconocida" }, 404);
