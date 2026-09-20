@@ -146,10 +146,12 @@ async function handleApi(request, env, path) {
   if (path === "/api/chips/transferir" && method === "POST") return apiChipsTransferir(request, env);
 
   // ---------- FIDELIZACION: panel admin (Tapy) ----------
+  if (path === "/api/fidelizacion/chips-libres" && method === "GET") return apiFidChipsLibres(env);
   if (path === "/api/fidelizacion/comercios" && method === "GET") return apiFidComerciosList(env);
   if (path === "/api/fidelizacion/comercios" && method === "POST") return apiFidComercioCreate(request, env);
   const fidComercioMatch = path.match(/^\/api\/fidelizacion\/comercios\/(\d+)$/);
   if (fidComercioMatch && method === "PATCH") return apiFidComercioPatch(fidComercioMatch[1], request, env);
+  if (fidComercioMatch && method === "DELETE") return apiFidComercioDelete(fidComercioMatch[1], env);
   const fidPremiosMatch = path.match(/^\/api\/fidelizacion\/comercios\/(\d+)\/premios$/);
   if (fidPremiosMatch && method === "PATCH") return apiFidPremiosPatch(fidPremiosMatch[1], request, env);
   if (fidPremiosMatch && method === "GET") return apiFidPremiosGet(fidPremiosMatch[1], env);
@@ -267,6 +269,12 @@ __name(apiClientPatch, "apiClientPatch");
 
 async function apiClientDelete(id, env) {
   try {
+    const comercio = await env.DB.prepare(`SELECT id FROM fidelizacion_comercios WHERE client_id = ?`).bind(id).first();
+    if (comercio) {
+      // El cliente se borra igual mas abajo, asi que no hace falta liberar sus chips a stock: ya se van a borrar.
+      await eliminarFidelizacionComercio(env, comercio.id, false);
+    }
+
     const { results: chips } = await env.DB.prepare(`SELECT id FROM chips WHERE client_id = ?`).bind(id).all();
     for (const chip of chips) {
       await env.DB.prepare(`DELETE FROM taps WHERE chip_id = ?`).bind(chip.id).run();
@@ -1098,6 +1106,92 @@ async function generarSlugUnico(env) {
 }
 __name(generarSlugUnico, "generarSlugUnico");
 
+// Borra por completo el programa de fidelización de un comercio (clientes, premios,
+// toques, canjes y cobros) y, si se pide, libera sus 2 chips NFC/QR de vuelta al stock
+// (sin_asignar, tipo 'resena') para que se puedan volver a usar en otro comercio.
+async function eliminarFidelizacionComercio(env, comercioId, liberarChips) {
+  const comercio = await env.DB.prepare(
+    `SELECT id, nfc_inscripcion_chip_id, nfc_puntos_chip_id FROM fidelizacion_comercios WHERE id = ?`
+  ).bind(comercioId).first();
+  if (!comercio) return;
+
+  const { results: clientes } = await env.DB.prepare(
+    `SELECT id FROM fidelizacion_clientes WHERE comercio_id = ?`
+  ).bind(comercioId).all();
+  for (const c of clientes) {
+    await env.DB.prepare(`DELETE FROM fidelizacion_taps WHERE fidelizacion_cliente_id = ?`).bind(c.id).run();
+    await env.DB.prepare(`DELETE FROM fidelizacion_canjes WHERE fidelizacion_cliente_id = ?`).bind(c.id).run();
+  }
+  await env.DB.prepare(`DELETE FROM fidelizacion_clientes WHERE comercio_id = ?`).bind(comercioId).run();
+  await env.DB.prepare(`DELETE FROM fidelizacion_premios WHERE comercio_id = ?`).bind(comercioId).run();
+  await env.DB.prepare(`DELETE FROM fidelizacion_cobros WHERE comercio_id = ?`).bind(comercioId).run();
+
+  if (liberarChips) {
+    const stockClientId = await getStockClientId(env);
+    const chipIds = [comercio.nfc_inscripcion_chip_id, comercio.nfc_puntos_chip_id].filter(Boolean);
+    for (const chipId of chipIds) {
+      await env.DB.prepare(
+        `UPDATE chips SET client_id = ?, destination_url = ?, status = 'sin_asignar', tipo = 'resena', label = NULL WHERE id = ?`
+      ).bind(stockClientId, "https://tapy.com.py/pendiente-asignacion", chipId).run();
+    }
+  }
+
+  await env.DB.prepare(`DELETE FROM fidelizacion_comercios WHERE id = ?`).bind(comercioId).run();
+}
+__name(eliminarFidelizacionComercio, "eliminarFidelizacionComercio");
+
+async function apiFidComercioDelete(id, env) {
+  try {
+    const comercio = await env.DB.prepare(`SELECT id FROM fidelizacion_comercios WHERE id = ?`).bind(id).first();
+    if (!comercio) return json({ error: "Comercio no encontrado" }, 404);
+    await eliminarFidelizacionComercio(env, id, true);
+    return json({ ok: true });
+  } catch (err) {
+    return json({ error: err.message }, 500);
+  }
+}
+__name(apiFidComercioDelete, "apiFidComercioDelete");
+
+async function apiFidChipsLibres(env) {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT id, slug, numero_lote FROM chips WHERE status = 'sin_asignar' ORDER BY numero_lote ASC, id ASC`
+    ).all();
+    return json(results);
+  } catch (err) {
+    return json({ error: err.message }, 500);
+  }
+}
+__name(apiFidChipsLibres, "apiFidChipsLibres");
+
+// Valida (sin escribir nada todavia) que un chip elegido de stock exista y este libre.
+// Se corre ANTES de crear el comercio, para no dejar filas a medio crear si algo falla.
+async function validarChipFidelizacion(env, chipId) {
+  if (!chipId) return null; // sin chipId: se genera uno virtual mas adelante, nada que validar
+  const chip = await env.DB.prepare(`SELECT id, slug, status FROM chips WHERE id = ?`).bind(chipId).first();
+  if (!chip) throw new Error("No encontramos ese chip");
+  if (chip.status !== "sin_asignar") throw new Error("Ese chip ya no está libre, elegí otro");
+  return chip;
+}
+__name(validarChipFidelizacion, "validarChipFidelizacion");
+
+// Reclama UNA tarjeta (inscripción o puntos) ya validada: si viene un chip de stock, lo
+// asigna; si no, genera uno virtual nuevo. Solo se llama despues de crear el comercio.
+async function reclamarChipFidelizacion(env, clientId, chipValidado, tipoChip, labelTexto) {
+  if (chipValidado) {
+    await env.DB.prepare(
+      `UPDATE chips SET client_id = ?, destination_url = ?, status = 'activo', tipo = ?, label = ? WHERE id = ?`
+    ).bind(clientId, "https://tapy.com.py/fidelizacion", tipoChip, labelTexto, chipValidado.id).run();
+    return { id: chipValidado.id, slug: chipValidado.slug };
+  }
+  const slug = await generarSlugUnico(env);
+  const result = await env.DB.prepare(
+    `INSERT INTO chips (client_id, slug, destination_url, status, tipo) VALUES (?,?,?, 'activo', ?)`
+  ).bind(clientId, slug, "https://tapy.com.py/fidelizacion", tipoChip).run();
+  return { id: result.meta.last_row_id, slug };
+}
+__name(reclamarChipFidelizacion, "reclamarChipFidelizacion");
+
 async function apiFidComerciosList(env) {
   try {
     const { results } = await env.DB.prepare(
@@ -1128,6 +1222,20 @@ async function apiFidComercioCreate(request, env) {
     const existingUser = await env.DB.prepare(`SELECT id FROM fidelizacion_comercios WHERE usuario = ?`).bind(body.usuario).first();
     if (existingUser) return json({ error: "Ese usuario ya existe, elegi otro" }, 409);
 
+    // Validamos TODO (incluidas las 2 tarjetas) antes de escribir nada en la base: si algo
+    // de esto falla, no queremos dejar un comercio a medio crear que despues bloquee un
+    // segundo intento (usuario/empresa ya "ocupados" por una fila fantasma).
+    if (body.chip_inscripcion_id && body.chip_puntos_id && String(body.chip_inscripcion_id) === String(body.chip_puntos_id)) {
+      return json({ error: "Elegí 2 chips distintos para inscripción y puntos" }, 400);
+    }
+    let chipInsValidado, chipPunValidado;
+    try {
+      chipInsValidado = await validarChipFidelizacion(env, body.chip_inscripcion_id);
+      chipPunValidado = await validarChipFidelizacion(env, body.chip_puntos_id);
+    } catch (err) {
+      return json({ error: err.message }, 409);
+    }
+
     const niveles = parseInt(body.niveles, 10) || 5;
     const monedasPorNivel = parseInt(body.monedas_por_nivel, 10) || 10;
     const validezDias = parseInt(body.validez_dias, 10) || 90;
@@ -1148,18 +1256,17 @@ async function apiFidComercioCreate(request, env) {
       await env.DB.batch(statements);
     }
 
-    const slugInscripcion = await generarSlugUnico(env);
-    const slugPuntos = await generarSlugUnico(env);
-    const chipInsResult = await env.DB.prepare(
-      `INSERT INTO chips (client_id, slug, destination_url, status, tipo) VALUES (?,?,?, 'activo', 'fidelizacion_inscripcion')`
-    ).bind(body.client_id, slugInscripcion, "https://tapy.com.py/fidelizacion").run();
-    const chipPunResult = await env.DB.prepare(
-      `INSERT INTO chips (client_id, slug, destination_url, status, tipo) VALUES (?,?,?, 'activo', 'fidelizacion_puntos')`
-    ).bind(body.client_id, slugPuntos, "https://tapy.com.py/fidelizacion").run();
+    // El comercio puede elegir, para cada una de las 2 tarjetas por separado, un chip ya
+    // impreso (NFC+QR) de su stock libre (control de inventario), o dejar que el sistema
+    // le genere un chip virtual nuevo. Cada tarjeta se resuelve de forma independiente.
+    const chipIns = await reclamarChipFidelizacion(env, body.client_id, chipInsValidado, "fidelizacion_inscripcion", "Fidelizacion - inscripcion");
+    const chipPun = await reclamarChipFidelizacion(env, body.client_id, chipPunValidado, "fidelizacion_puntos", "Fidelizacion - puntos");
+    const slugInscripcion = chipIns.slug;
+    const slugPuntos = chipPun.slug;
 
     await env.DB.prepare(
       `UPDATE fidelizacion_comercios SET nfc_inscripcion_chip_id = ?, nfc_puntos_chip_id = ? WHERE id = ?`
-    ).bind(chipInsResult.meta.last_row_id, chipPunResult.meta.last_row_id, comercioId).run();
+    ).bind(chipIns.id, chipPun.id, comercioId).run();
 
     const fechaVencimiento = new Date();
     fechaVencimiento.setMonth(fechaVencimiento.getMonth() + 2);
