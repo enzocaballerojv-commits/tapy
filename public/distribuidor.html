@@ -130,6 +130,7 @@
   @media(min-width:640px){ .toast{left:auto;right:20px;max-width:360px;} }
   .toast.show{display:block;}
   .toast.error{background:var(--red);}
+  .helper-link{background:none;border:none;color:var(--navy);text-decoration:underline;font-size:12px;cursor:pointer;padding:0;}
 </style>
 </head>
 <body>
@@ -149,6 +150,8 @@
   <div class="topbar">
     <div class="brand"><span class="dot"></span><span id="brandName">Tapy — Mayorista</span></div>
     <div class="topbar-actions">
+      <button onclick="window.open('https://developers.google.com/maps/documentation/javascript/examples/places-placeid-finder','_blank')">Buscar Place ID</button>
+      <button onclick="openLinkResenaModal()">Link de reseña</button>
       <button onclick="logout()">Salir</button>
     </div>
   </div>
@@ -216,7 +219,17 @@
 
     <div class="field">
       <label>Link de destino (a dónde redirige el tap/QR)</label>
-      <input type="text" id="asignarDestino" placeholder="Link de reseñas de Google, WhatsApp, etc.">
+      <div style="display:flex;gap:6px;">
+        <input type="text" id="asignarDestino" placeholder="Link de reseñas de Google, WhatsApp, etc." style="flex:1;">
+        <button type="button" class="btn btn-secondary btn-sm" style="white-space:nowrap;" onclick="probarLinkDestino()">Probar</button>
+      </div>
+      <div class="field-hint">¿No tenés el Place ID de Google Maps todavía? <button type="button" class="helper-link" onclick="togglePlaceIdHelper()">Buscarlo y armar el link</button></div>
+      <div id="placeIdHelperBox" style="display:none;margin-top:8px;padding:10px;background:var(--paper);border-radius:8px;">
+        <div class="field-hint" style="margin-bottom:8px;">1. Tocá "Buscar Place ID" (se abre en otra pestaña) · 2. Buscá el negocio y copiá el Place ID · 3. Volvé acá, pegalo abajo y armá el link · 4. Tocá "Probar" arriba para chequear que abra la reseña correcta.</div>
+        <a href="https://developers.google.com/maps/documentation/javascript/examples/places-placeid-finder" target="_blank" rel="noopener" class="btn btn-secondary btn-sm btn-block" style="margin-bottom:8px;text-decoration:none;box-sizing:border-box;display:block;text-align:center;">Buscar Place ID en Google →</a>
+        <input type="text" id="placeIdInput" placeholder="Pegá acá el Place ID, ej: ChIJIYlgxqCvXZQRVPoD2xYcozI" style="margin-bottom:8px;">
+        <button type="button" class="btn btn-secondary btn-sm btn-block" onclick="usarPlaceId()">Armar el link de reseña</button>
+      </div>
     </div>
     <div class="field">
       <label>Etiqueta interna (opcional)</label>
@@ -238,6 +251,28 @@
     <div class="modal-actions" style="justify-content:center;">
       <button class="btn btn-secondary" onclick="closeModal('modalQr')">Cerrar</button>
       <button class="btn btn-primary" onclick="downloadQr()">Descargar PNG</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalLinkResena">
+  <div class="modal">
+    <h3>Generar link de reseña</h3>
+    <div class="modal-sub">Pegá el Place ID de Google (usá el botón "Buscar Place ID" si no lo tenés) y te armo el link listo para asignar a un chip.</div>
+    <div class="field">
+      <label>Place ID de Google Maps</label>
+      <input type="text" id="linkResenaPlaceId" placeholder="Ej: ChIJIYlgxqCvXZQRVPoD2xYcozI" onkeydown="if(event.key==='Enter')armarLinkResena()">
+      <div class="field-hint">¿No lo tenés? <a href="https://developers.google.com/maps/documentation/javascript/examples/places-placeid-finder" target="_blank" rel="noopener">Buscalo acá con el buscador oficial de Google</a>.</div>
+    </div>
+    <button type="button" class="btn btn-secondary btn-block" onclick="armarLinkResena()">Armar el link de reseña</button>
+    <div id="linkResenaResultadoBox" style="display:none;margin-top:14px;padding:10px;background:var(--paper);border-radius:8px;">
+      <div class="field-hint" style="margin-bottom:6px;">Link listo:</div>
+      <div class="qr-link" id="linkResenaResultado" style="word-break:break-all;"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modalLinkResena')">Cerrar</button>
+      <button class="btn btn-secondary" id="btnProbarLinkResena" style="display:none;" onclick="probarLinkResenaResultado()">Probar</button>
+      <button class="btn btn-primary" id="btnCopiarLinkResena" style="display:none;" onclick="copiarLinkResenaResultado()">Copiar link</button>
     </div>
   </div>
 </div>
@@ -464,6 +499,55 @@ function toggleClienteMode(){
   const mode = document.querySelector('input[name=clienteMode]:checked').value;
   document.getElementById('clienteExistenteBox').style.display = mode==='existente' ? 'block' : 'none';
   document.getElementById('clienteNuevoBox').style.display = mode==='nuevo' ? 'block' : 'none';
+}
+function togglePlaceIdHelper(){
+  const box = document.getElementById('placeIdHelperBox');
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+function usarPlaceId(){
+  const id = document.getElementById('placeIdInput').value.trim();
+  if(!id){ toast('Pegá el Place ID primero', true); return; }
+  document.getElementById('asignarDestino').value = `https://search.google.com/local/writereview?placeid=${encodeURIComponent(id)}`;
+  document.getElementById('placeIdInput').value = '';
+  document.getElementById('placeIdHelperBox').style.display = 'none';
+  toast('Link armado. Tocá "Probar" para chequear que abra bien');
+}
+function probarLinkDestino(){
+  const url = document.getElementById('asignarDestino').value.trim();
+  if(!url){ toast('Todavía no hay ningún link para probar', true); return; }
+  window.open(url, '_blank');
+}
+function openLinkResenaModal(){
+  document.getElementById('linkResenaPlaceId').value = '';
+  document.getElementById('linkResenaResultadoBox').style.display = 'none';
+  document.getElementById('linkResenaResultado').textContent = '';
+  document.getElementById('btnCopiarLinkResena').style.display = 'none';
+  document.getElementById('btnProbarLinkResena').style.display = 'none';
+  document.getElementById('modalLinkResena').classList.add('open');
+}
+function armarLinkResena(){
+  const id = document.getElementById('linkResenaPlaceId').value.trim();
+  if(!id){ toast('Pegá el Place ID primero', true); return; }
+  const url = `https://search.google.com/local/writereview?placeid=${encodeURIComponent(id)}`;
+  document.getElementById('linkResenaResultado').textContent = url;
+  document.getElementById('linkResenaResultadoBox').style.display = 'block';
+  document.getElementById('btnCopiarLinkResena').style.display = 'inline-block';
+  document.getElementById('btnProbarLinkResena').style.display = 'inline-block';
+}
+function probarLinkResenaResultado(){
+  const url = document.getElementById('linkResenaResultado').textContent;
+  if(!url) return;
+  window.open(url, '_blank');
+}
+async function copiarLinkResenaResultado(){
+  const url = document.getElementById('linkResenaResultado').textContent;
+  if(!url) return;
+  try{
+    await navigator.clipboard.writeText(url);
+    toast('Link de reseña copiado');
+  }catch(e){
+    prompt('Copiá este link manualmente:', url);
+  }
 }
 async function submitAsignar(){
   const mode = document.querySelector('input[name=clienteMode]:checked').value;
