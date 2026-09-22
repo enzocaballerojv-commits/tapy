@@ -764,7 +764,7 @@ __name(handleDistribuidorApi, "handleDistribuidorApi");
 // ======================================================================
 
 var GRACIA_DIAS = 3;
-var TAP_RATE_LIMIT_HOURS = 4;
+var TAP_RATE_LIMIT_HOURS = 4; // valor de respaldo si el comercio todavia no tiene horas_entre_sumas cargado
 
 async function signWithSecret(env, text) {
   return sha256Hex(`${text}:${env.PANEL_PASSWORD || ""}`);
@@ -1018,14 +1018,21 @@ async function intentarSumarMoneda(env, comercio, cliente) {
   if (cliente.pendiente_canje) {
     return { ...(await estadoClienteRespuesta(env, comercio, cliente)), nivel_completo: true };
   }
-  const ultimaTap = await env.DB.prepare(
-    `SELECT ts FROM fidelizacion_taps WHERE fidelizacion_cliente_id = ? ORDER BY ts DESC LIMIT 1`
-  ).bind(cliente.id).first();
-  if (ultimaTap) {
-    const limite = new Date(ultimaTap.ts);
-    limite.setHours(limite.getHours() + TAP_RATE_LIMIT_HOURS);
-    if (new Date() < limite) {
-      return { ...(await estadoClienteRespuesta(env, comercio, cliente)), ya_sumaste: true };
+  // Cada comercio elige su propio lapso entre sumas (ej: un bar puede poner 0 para instantaneo,
+  // un restaurante puede poner 24 para una vez por dia). horas_entre_sumas admite decimales
+  // (0.5 = 30 minutos). Si el comercio todavia no tiene el campo cargado, usamos el valor de respaldo.
+  const horasEspera = (comercio.horas_entre_sumas === null || comercio.horas_entre_sumas === undefined)
+    ? TAP_RATE_LIMIT_HOURS
+    : Number(comercio.horas_entre_sumas);
+  if (horasEspera > 0) {
+    const ultimaTap = await env.DB.prepare(
+      `SELECT ts FROM fidelizacion_taps WHERE fidelizacion_cliente_id = ? ORDER BY ts DESC LIMIT 1`
+    ).bind(cliente.id).first();
+    if (ultimaTap) {
+      const limite = new Date(new Date(ultimaTap.ts).getTime() + horasEspera * 3600000);
+      if (new Date() < limite) {
+        return { ...(await estadoClienteRespuesta(env, comercio, cliente)), ya_sumaste: true };
+      }
     }
   }
   let nuevasMonedas = cliente.monedas_actuales + 1;
@@ -1251,12 +1258,14 @@ async function apiFidComercioCreate(request, env) {
     const niveles = parseInt(body.niveles, 10) || 5;
     const monedasPorNivel = parseInt(body.monedas_por_nivel, 10) || 10;
     const validezDias = parseInt(body.validez_dias, 10) || 90;
+    const horasEntreSumas = (body.horas_entre_sumas === undefined || body.horas_entre_sumas === null || body.horas_entre_sumas === "")
+      ? 4 : parseFloat(body.horas_entre_sumas);
     const passwordHash = await sha256Hex(body.password);
 
     const result = await env.DB.prepare(
-      `INSERT INTO fidelizacion_comercios (client_id, usuario, password_hash, niveles, monedas_por_nivel, validez_dias)
-       VALUES (?,?,?,?,?,?)`
-    ).bind(body.client_id, body.usuario, passwordHash, niveles, monedasPorNivel, validezDias).run();
+      `INSERT INTO fidelizacion_comercios (client_id, usuario, password_hash, niveles, monedas_por_nivel, validez_dias, horas_entre_sumas)
+       VALUES (?,?,?,?,?,?,?)`
+    ).bind(body.client_id, body.usuario, passwordHash, niveles, monedasPorNivel, validezDias, horasEntreSumas).run();
     const comercioId = result.meta.last_row_id;
 
     const premios = Array.isArray(body.premios) ? body.premios : [];
@@ -1294,7 +1303,7 @@ async function apiFidComercioCreate(request, env) {
 }
 __name(apiFidComercioCreate, "apiFidComercioCreate");
 
-var FID_COMERCIO_EDITABLE = ["niveles", "monedas_por_nivel"];
+var FID_COMERCIO_EDITABLE = ["niveles", "monedas_por_nivel", "horas_entre_sumas"];
 async function apiFidComercioPatch(id, request, env) {
   try {
     const body = await request.json();
@@ -1453,6 +1462,7 @@ async function handleComercioApi(request, env, path, comercio) {
       monedas_por_nivel: comercio.monedas_por_nivel,
       validez_dias: comercio.validez_dias,
       validez_editada_por_comercio: !!comercio.validez_editada_por_comercio,
+      horas_entre_sumas: (comercio.horas_entre_sumas === null || comercio.horas_entre_sumas === undefined) ? 4 : comercio.horas_entre_sumas,
       estado: comercio.estado
     });
   }
@@ -1471,6 +1481,7 @@ async function handleComercioApi(request, env, path, comercio) {
       const values = [];
       if (body.niveles !== undefined) { fields.push("niveles = ?"); values.push(body.niveles); }
       if (body.monedas_por_nivel !== undefined) { fields.push("monedas_por_nivel = ?"); values.push(body.monedas_por_nivel); }
+      if (body.horas_entre_sumas !== undefined) { fields.push("horas_entre_sumas = ?"); values.push(body.horas_entre_sumas); }
       if (body.validez_dias !== undefined) {
         if (comercio.validez_editada_por_comercio) {
           return json({ error: "Ya usaste tu cambio gratuito de la validez del cupón. Pedile a Tapy que lo actualice." }, 403);
