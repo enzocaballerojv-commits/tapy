@@ -199,6 +199,22 @@
       <input type="number" id="cfgMonedasPorNivel" min="1" max="100">
     </div>
     <div class="field">
+      <label>Espera entre sumas de moneda</label>
+      <select id="cfgHorasEntreSumas">
+        <option value="0">Instantáneo (sin límite)</option>
+        <option value="0.25">15 minutos</option>
+        <option value="0.5">30 minutos</option>
+        <option value="1">1 hora</option>
+        <option value="2">2 horas</option>
+        <option value="3">3 horas</option>
+        <option value="4">4 horas (recomendado)</option>
+        <option value="6">6 horas</option>
+        <option value="12">12 horas</option>
+        <option value="24">24 horas (una vez por día)</option>
+      </select>
+      <div class="field-hint">Cuánto tiene que esperar tu cliente entre una moneda y la siguiente. Elegí lo que tenga sentido para tu negocio.</div>
+    </div>
+    <div class="field">
       <label>Validez del cupón (días desde la inscripción)</label>
       <input type="number" id="cfgValidezDias" min="1" max="3650">
       <div class="field-hint" id="cfgValidezHint">Podés cambiar esto una sola vez. Si ya lo usaste, escribile a Tapy para que te lo actualice.</div>
@@ -433,6 +449,10 @@ async function openConfigModal(){
     STATE.comercio = me;
     document.getElementById('cfgNiveles').value = me.niveles;
     document.getElementById('cfgMonedasPorNivel').value = me.monedas_por_nivel;
+    const horasSel = document.getElementById('cfgHorasEntreSumas');
+    const horasVal = String(me.horas_entre_sumas === null || me.horas_entre_sumas === undefined ? 4 : me.horas_entre_sumas);
+    horasSel.value = horasVal;
+    if(horasSel.value !== horasVal) horasSel.value = '4';
     document.getElementById('cfgValidezDias').value = me.validez_dias;
 
     const validezInput = document.getElementById('cfgValidezDias');
@@ -490,7 +510,8 @@ async function submitConfig(){
     if(!niveles || niveles < 1){ toast('Poné una cantidad de niveles válida', true); return; }
     if(!monedasPorNivel || monedasPorNivel < 1){ toast('Poné una cantidad de monedas válida', true); return; }
 
-    const configBody = { niveles, monedas_por_nivel: monedasPorNivel };
+    const horasEntreSumas = parseFloat(document.getElementById('cfgHorasEntreSumas').value);
+    const configBody = { niveles, monedas_por_nivel: monedasPorNivel, horas_entre_sumas: horasEntreSumas };
     const validezInput = document.getElementById('cfgValidezDias');
     if(!validezInput.disabled){
       const validezDias = parseInt(validezInput.value, 10);

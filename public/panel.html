@@ -454,6 +454,21 @@
       <input type="number" id="fidNuevoMonedas" value="10" min="1" max="50">
     </div>
     <div class="field">
+      <label>Espera entre sumas de moneda</label>
+      <select id="fidNuevoHorasEntreSumas">
+        <option value="0">Instantáneo (sin límite)</option>
+        <option value="0.25">15 minutos</option>
+        <option value="0.5">30 minutos</option>
+        <option value="1">1 hora</option>
+        <option value="2">2 horas</option>
+        <option value="3">3 horas</option>
+        <option value="4" selected>4 horas (recomendado)</option>
+        <option value="6">6 horas</option>
+        <option value="12">12 horas</option>
+        <option value="24">24 horas (una vez por día)</option>
+      </select>
+    </div>
+    <div class="field">
       <label>Validez del cupón (días)</label>
       <input type="number" id="fidNuevoValidez" value="90" min="1" max="365">
     </div>
@@ -487,6 +502,22 @@
     <div class="modal-sub">Ajustá el programa de este comercio. Los cambios se ven al toque en su panel y en la tarjeta del cliente.</div>
     <div class="field"><label>Niveles</label><input type="number" id="fidConfigNiveles" min="1" max="10"></div>
     <div class="field"><label>Monedas por nivel</label><input type="number" id="fidConfigMonedas" min="1" max="50"></div>
+    <div class="field">
+      <label>Espera entre sumas de moneda</label>
+      <select id="fidConfigHorasEntreSumas">
+        <option value="0">Instantáneo (sin límite, ej: 1 chop = 1 moneda al toque)</option>
+        <option value="0.25">15 minutos</option>
+        <option value="0.5">30 minutos</option>
+        <option value="1">1 hora</option>
+        <option value="2">2 horas</option>
+        <option value="3">3 horas</option>
+        <option value="4">4 horas (recomendado)</option>
+        <option value="6">6 horas</option>
+        <option value="12">12 horas</option>
+        <option value="24">24 horas (una vez por día)</option>
+      </select>
+      <div class="field-hint">Cuánto tiene que esperar un cliente entre una suma de moneda y la siguiente. Cada comercio elige la suya según su rubro (un bar puede ser instantáneo, un restaurante puede ser una vez al día).</div>
+    </div>
     <div class="field">
       <label>Validez del cupón (días)</label>
       <input type="number" id="fidConfigValidez" min="1" max="365">
@@ -1218,6 +1249,7 @@ function resetFidForm(){
   document.getElementById('fidNuevoPassword').value = '';
   document.getElementById('fidNuevoNiveles').value = 5;
   document.getElementById('fidNuevoMonedas').value = 10;
+  document.getElementById('fidNuevoHorasEntreSumas').value = '4';
   document.getElementById('fidNuevoValidez').value = 90;
   document.getElementById('fidNuevoMonto').value = '';
 }
@@ -1280,6 +1312,7 @@ async function submitFidInscribir(){
   const password = document.getElementById('fidNuevoPassword').value.trim();
   const niveles = parseInt(document.getElementById('fidNuevoNiveles').value, 10);
   const monedas_por_nivel = parseInt(document.getElementById('fidNuevoMonedas').value, 10);
+  const horas_entre_sumas = parseFloat(document.getElementById('fidNuevoHorasEntreSumas').value);
   const validez_dias = parseInt(document.getElementById('fidNuevoValidez').value, 10);
   const montoRaw = document.getElementById('fidNuevoMonto').value;
   const monto_mensual = montoRaw ? parseFloat(montoRaw) : null;
@@ -1314,7 +1347,7 @@ async function submitFidInscribir(){
     if(!client_id){ toast('Elegí una empresa', true); return; }
   }
 
-  const body = { client_id, usuario, password, niveles, monedas_por_nivel, validez_dias, monto_mensual };
+  const body = { client_id, usuario, password, niveles, monedas_por_nivel, horas_entre_sumas, validez_dias, monto_mensual };
   if(chipInscripcionId) body.chip_inscripcion_id = chipInscripcionId;
   if(chipPuntosId) body.chip_puntos_id = chipPuntosId;
 
@@ -1349,6 +1382,10 @@ async function openFidConfigModal(comercioId){
   document.getElementById('fidConfigTitle').textContent = 'Configurar — ' + f.client_name;
   document.getElementById('fidConfigNiveles').value = f.niveles;
   document.getElementById('fidConfigMonedas').value = f.monedas_por_nivel;
+  const horasSel = document.getElementById('fidConfigHorasEntreSumas');
+  const horasVal = String(f.horas_entre_sumas === null || f.horas_entre_sumas === undefined ? 4 : f.horas_entre_sumas);
+  horasSel.value = horasVal;
+  if(horasSel.value !== horasVal) horasSel.value = '4'; // valor custom no listado: mostramos el recomendado
   document.getElementById('fidConfigValidez').value = f.validez_dias;
   document.getElementById('fidConfigValidezHint').textContent = f.validez_editada_por_comercio
     ? 'El comercio ya usó su cambio gratuito de este campo. Si lo modificás vos acá no le consume otro cambio a él.'
@@ -1372,11 +1409,12 @@ async function submitFidConfigGuardar(){
   if(!id) return;
   const niveles = parseInt(document.getElementById('fidConfigNiveles').value, 10);
   const monedas_por_nivel = parseInt(document.getElementById('fidConfigMonedas').value, 10);
+  const horas_entre_sumas = parseFloat(document.getElementById('fidConfigHorasEntreSumas').value);
   const validez_dias = parseInt(document.getElementById('fidConfigValidez').value, 10);
   try{
     await apiFetch(`/api/fidelizacion/comercios/${id}`, {
       method:'PATCH', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ niveles, monedas_por_nivel, validez_dias })
+      body: JSON.stringify({ niveles, monedas_por_nivel, horas_entre_sumas, validez_dias })
     });
     const premios = [];
     for(let n=1; n<=niveles; n++){
