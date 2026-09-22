@@ -13,6 +13,17 @@
   .tapy-btn:disabled{opacity:0.5;}
   .screen{width:100%;max-width:430px;margin:0 auto;min-height:100vh;box-sizing:border-box;background:#0B1B3A;display:flex;flex-direction:column;overflow:hidden;}
   .error-txt{color:#D63B3B;font-size:12px;margin:-4px 0 4px;min-height:14px;}
+
+  @keyframes joinPopIn{0%{transform:scale(0) rotate(-10deg);opacity:0;}55%{transform:scale(1.15) rotate(4deg);opacity:1;}75%{transform:scale(.95) rotate(-2deg);}100%{transform:scale(1) rotate(0);}}
+  @keyframes joinRingPulse{0%{transform:scale(.6);opacity:.55;}100%{transform:scale(2.3);opacity:0;}}
+  @keyframes joinFadeUp{0%{opacity:0;transform:translateY(10px);}100%{opacity:1;transform:translateY(0);}}
+  @keyframes joinConfettiPop{0%{transform:translate(0,0) rotate(0) scale(1);opacity:1;}100%{transform:translate(var(--tx),var(--ty)) rotate(var(--rot)) scale(.4);opacity:0;}}
+  .join-check-wrap{position:relative;width:88px;height:88px;display:flex;align-items:center;justify-content:center;}
+  .join-check-ring{position:absolute;inset:0;border-radius:50%;border:3px solid #2FAE66;animation:joinRingPulse 1.15s ease-out infinite;}
+  .join-check-ring.delay{animation-delay:.45s;}
+  .join-check-circle{position:relative;width:88px;height:88px;border-radius:50%;background:#2FAE66;display:flex;align-items:center;justify-content:center;animation:joinPopIn .6s cubic-bezier(.34,1.56,.64,1) both;z-index:1;}
+  .join-fade{animation:joinFadeUp .5s ease-out .3s both;}
+  .join-confetti{position:absolute;top:50%;left:50%;width:7px;height:7px;border-radius:2px;pointer-events:none;animation:joinConfettiPop .9s ease-out forwards;}
 </style>
 </head>
 <body>
@@ -61,11 +72,15 @@
 
 <div class="screen" id="successScreen" style="display:none;align-items:center;justify-content:center;">
   <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:24px;text-align:center;">
-    <div style="width:88px;height:88px;border-radius:50%;background:#2FAE66;display:flex;align-items:center;justify-content:center;">
-      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+    <div class="join-check-wrap" id="joinCheckWrap">
+      <div class="join-check-ring"></div>
+      <div class="join-check-ring delay"></div>
+      <div class="join-check-circle">
+        <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+      </div>
     </div>
-    <div style="font-family:'Fredoka',sans-serif;font-weight:700;font-size:22px;color:#FFFFFF;">¡Listo, <span id="successNombre"></span>!</div>
-    <div style="font-family:'Manrope',sans-serif;font-size:14px;color:#9FB0D1;max-width:300px;">Ya quedaste inscripto en el club de <span id="successNegocio"></span>. La próxima vez que vengas, tocá la otra tarjeta para sumar tu primera moneda.</div>
+    <div class="join-fade" style="font-family:'Fredoka',sans-serif;font-weight:700;font-size:22px;color:#FFFFFF;">¡Listo, <span id="successNombre"></span>!</div>
+    <div class="join-fade" style="font-family:'Manrope',sans-serif;font-size:14px;color:#9FB0D1;max-width:300px;animation-delay:.4s;">Ya quedaste inscripto en el club de <span id="successNegocio"></span>. La próxima vez que vengas, tocá la otra tarjeta para sumar tu primera moneda.</div>
   </div>
 </div>
 
@@ -102,6 +117,26 @@ async function cargarInfo(){
   }catch(e){
     document.getElementById('negocioNombreTxt').textContent = 'Club de fidelidad';
   }
+}
+
+function lanzarConfetiIngreso(){
+  const wrap = document.getElementById('joinCheckWrap');
+  if(!wrap) return;
+  const colores = ['#FF7A29','#2FAE66','#FFD166','#4C8DFF','#FFFFFF'];
+  for(let i=0; i<16; i++){
+    const p = document.createElement('div');
+    p.className = 'join-confetti';
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 55 + Math.random() * 65;
+    p.style.setProperty('--tx', Math.cos(angle)*dist + 'px');
+    p.style.setProperty('--ty', Math.sin(angle)*dist + 'px');
+    p.style.setProperty('--rot', (Math.random()*360 - 180) + 'deg');
+    p.style.background = colores[i % colores.length];
+    p.style.animationDelay = (Math.random() * 0.12) + 's';
+    wrap.appendChild(p);
+    setTimeout(() => p.remove(), 1200);
+  }
+  if(navigator.vibrate) navigator.vibrate(20);
 }
 
 function mostrarSuspendido(){
@@ -143,6 +178,7 @@ async function inscribir(){
     document.getElementById('successNegocio').textContent = data.negocio_nombre || 'este comercio';
     document.getElementById('formScreen').style.display = 'none';
     document.getElementById('successScreen').style.display = 'flex';
+    lanzarConfetiIngreso();
   }catch(e){
     errBox.textContent = 'No se pudo conectar. Revisá tu conexión e intentá de nuevo.';
     btn.disabled = false;
