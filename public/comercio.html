@@ -407,6 +407,26 @@ function numeroWhatsappInternacional(numero){
   return '595' + limpio;
 }
 
+// Emojis escritos como codepoints unicode (\u{...}) en vez de pegados literalmente:
+// asi el caracter lo arma el motor de JS en tiempo de ejecucion y no depende de que
+// el archivo sobreviva intacto a cada copia/guardado/despliegue en el camino
+// (evita el bug del emoji que aparece como un cuadrado con signo de pregunta).
+const EMOJI = {
+  party: '\u{1F389}',        // 🎉
+  sparkles: '\u{2728}',      // ✨
+  trophy: '\u{1F3C6}',       // 🏆
+  gift: '\u{1F381}',         // 🎁
+  heart: '\u{2764}\u{FE0F}', // ❤️
+  wave: '\u{1F44B}',         // 👋
+  muscle: '\u{1F4AA}',       // 💪
+  coin: '\u{1FA99}',         // 🪙
+  starstruck: '\u{1F929}'    // 🤩
+};
+
+function nombreNegocio(){
+  return (STATE.comercio && STATE.comercio.nombre) ? STATE.comercio.nombre : 'nuestro negocio';
+}
+
 async function canjear(clienteId){
   const cliente = STATE.clientes.find(c => c.id === clienteId);
   if(!cliente) return;
@@ -417,7 +437,11 @@ async function canjear(clienteId){
     await loadClientes();
     const numero = numeroWhatsappInternacional(cliente.whatsapp);
     if(numero){
-      const msg = `¡Hola ${cliente.nombre}! Subiste de nivel en nuestro club de fidelidad 🎉 Ahora estás en el nivel ${res.nuevo_nivel}. ¡Gracias por seguir viniendo!`;
+      const negocio = nombreNegocio();
+      const msg = `${EMOJI.party}${EMOJI.sparkles} ¡Felicitaciones, ${cliente.nombre}!\n\n`
+        + `Subiste al *Nivel ${res.nuevo_nivel}* en el club de fidelidad de *${negocio}* ${EMOJI.trophy}\n\n`
+        + `Gracias de corazón por elegirnos una y otra vez ${EMOJI.heart} Cada visita suma, ¡y esto recién empieza!\n\n`
+        + `Te esperamos para seguir sumando ${EMOJI.muscle}`;
       window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank');
     }
   }catch(e){}
@@ -429,11 +453,16 @@ function nudgeWhatsapp(clienteId){
   const numero = numeroWhatsappInternacional(c.whatsapp);
   if(!numero){ toast('Este cliente no tiene WhatsApp cargado', true); return; }
   const totalNecesario = (STATE.comercio && STATE.comercio.monedas_por_nivel) || 1;
+  const negocio = nombreNegocio();
   let msg;
   if(c.pendiente_canje){
-    msg = `¡Hola ${c.nombre}! Ya completaste el nivel ${c.nivel_actual} en nuestro club de fidelidad. Pasá cuando quieras a retirar tu premio.`;
+    msg = `${EMOJI.gift}${EMOJI.party} ¡${c.nombre}, completaste tu nivel en *${negocio}*!\n\n`
+      + `Ya tenés tu premio esperándote ${EMOJI.trophy} Pasá cuando quieras a retirarlo.\n\n`
+      + `¡Gracias por ser parte de nuestro club! ${EMOJI.heart}`;
   } else {
-    msg = `¡Hola ${c.nombre}! Te faltan ${Math.max(0, totalNecesario - c.monedas_actuales)} monedas para tu próximo premio en nuestro club de fidelidad. ¡Te esperamos!`;
+    const faltan = Math.max(0, totalNecesario - c.monedas_actuales);
+    msg = `${EMOJI.wave} ¡Hola ${c.nombre}! Te faltan *${faltan} moneda${faltan===1?'':'s'}* para tu próximo premio en *${negocio}* ${EMOJI.coin}${EMOJI.sparkles}\n\n`
+      + `¡Te esperamos pronto! ${EMOJI.starstruck}`;
   }
   window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank');
 }

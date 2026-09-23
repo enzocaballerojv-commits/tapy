@@ -16,16 +16,29 @@
   .level-track{display:flex;align-items:center;justify-content:flex-start;padding:0 2px;overflow-x:auto;gap:0;}
   .level-track::-webkit-scrollbar{display:none;}
 
-  @keyframes coinBounce{0%{transform:scale(.6) rotate(-8deg);}45%{transform:scale(1.3) rotate(6deg);}65%{transform:scale(.9) rotate(-3deg);}100%{transform:scale(1) rotate(0);}}
-  .coin-earn{animation:coinBounce .7s cubic-bezier(.34,1.56,.64,1) both;}
-  @keyframes glowFlash{0%{opacity:.9;transform:scale(.4);}100%{opacity:0;transform:scale(2.8);}}
-  .coin-glow{position:absolute;inset:-14px;border-radius:50%;background:radial-gradient(circle, rgba(255,122,41,.6), rgba(255,122,41,0) 70%);animation:glowFlash .8s ease-out both;pointer-events:none;z-index:0;}
-  @keyframes plusOnePop{0%{transform:scale(0) rotate(-20deg);opacity:0;}45%{transform:scale(1.5) rotate(8deg);opacity:1;}70%{transform:scale(1.05) rotate(-4deg);}100%{transform:scale(1) rotate(0);opacity:1;}}
-  .plusone-earn{animation:plusOnePop .65s cubic-bezier(.34,1.56,.64,1) .15s both;}
-  @keyframes titlePunch{0%{transform:scale(.85);opacity:0;}60%{transform:scale(1.06);opacity:1;}100%{transform:scale(1);}}
-  .title-earn{animation:titlePunch .5s ease-out .1s both;}
-  @keyframes pointsConfettiPop{0%{transform:translate(0,0) rotate(0) scale(1);opacity:1;}100%{transform:translate(var(--tx),var(--ty)) rotate(var(--rot)) scale(.3);opacity:0;}}
-  .points-confetti{position:absolute;top:50%;left:50%;border-radius:2px;pointer-events:none;animation:pointsConfettiPop 1.05s ease-out forwards;z-index:2;}
+  @keyframes coinBounce{0%{transform:scale(.5) rotate(-12deg);}40%{transform:scale(1.45) rotate(8deg);}60%{transform:scale(.85) rotate(-5deg);}80%{transform:scale(1.1) rotate(2deg);}100%{transform:scale(1) rotate(0);}}
+  .coin-earn{animation:coinBounce .85s cubic-bezier(.34,1.56,.64,1) both;}
+  @keyframes glowFlash{0%{opacity:1;transform:scale(.3);}100%{opacity:0;transform:scale(3.6);}}
+  .coin-glow{position:absolute;inset:-14px;border-radius:50%;background:radial-gradient(circle, rgba(255,209,102,.75), rgba(255,122,41,.35) 45%, rgba(255,122,41,0) 72%);animation:glowFlash 1s ease-out both;pointer-events:none;z-index:0;}
+  @keyframes plusOnePop{0%{transform:scale(0) rotate(-25deg);opacity:0;}40%{transform:scale(1.7) rotate(10deg);opacity:1;}65%{transform:scale(1.1) rotate(-6deg);}85%{transform:scale(1.25) rotate(3deg);}100%{transform:scale(1) rotate(0);opacity:1;}}
+  .plusone-earn{animation:plusOnePop .8s cubic-bezier(.34,1.56,.64,1) .15s both;}
+  @keyframes titlePunch{0%{transform:scale(.8);opacity:0;}55%{transform:scale(1.12);opacity:1;}100%{transform:scale(1);}}
+  .title-earn{animation:titlePunch .55s ease-out .1s both;}
+  @keyframes pointsConfettiPop{0%{transform:translate(0,0) rotate(0) scale(1);opacity:1;}100%{transform:translate(var(--tx),var(--ty)) rotate(var(--rot)) scale(.25);opacity:0;}}
+  .points-confetti{position:absolute;top:50%;left:50%;border-radius:2px;pointer-events:none;animation:pointsConfettiPop 1.15s ease-out forwards;z-index:2;}
+  @keyframes screenFlashPop{0%{opacity:.55;}100%{opacity:0;}}
+  .screen-flash{position:fixed;inset:0;background:radial-gradient(circle at 50% 42%, rgba(255,209,102,.6), rgba(255,122,41,0) 60%);pointer-events:none;z-index:50;animation:screenFlashPop .5s ease-out forwards;}
+
+  @keyframes levelRingPulse{0%{transform:scale(.5);opacity:.6;}100%{transform:scale(2.8);opacity:0;}}
+  .level-trophy-wrap{position:relative;width:112px;height:112px;display:flex;align-items:center;justify-content:center;}
+  .level-trophy-ring{position:absolute;inset:0;border-radius:50%;border:3px solid #FFD166;animation:levelRingPulse 1.6s ease-out infinite;}
+  .level-trophy-ring.delay1{animation-delay:.4s;}
+  .level-trophy-ring.delay2{animation-delay:.8s;}
+  @keyframes trophyPop{0%{transform:scale(0) rotate(-18deg);opacity:0;}50%{transform:scale(1.25) rotate(7deg);opacity:1;}72%{transform:scale(.9) rotate(-4deg);}100%{transform:scale(1) rotate(0);}}
+  .level-trophy-circle{position:relative;width:112px;height:112px;border-radius:50%;background:#FFD166;display:flex;align-items:center;justify-content:center;animation:trophyPop .8s cubic-bezier(.34,1.56,.64,1) both;z-index:1;box-shadow:0 0 46px rgba(255,209,102,.6);}
+  @keyframes levelFadeUp{0%{opacity:0;transform:translateY(16px);}100%{opacity:1;transform:translateY(0);}}
+  .level-fade{animation:levelFadeUp .5s ease-out both;}
+  @keyframes confettiFall{0%{transform:translate(0,0) rotate(0deg);opacity:1;}100%{transform:translate(var(--drift), 680px) rotate(560deg);opacity:.1;}}
 </style>
 </head>
 <body>
@@ -112,6 +125,33 @@
   </div>
 </div>
 
+<div id="nivelCompletoOverlay" style="display:none;position:fixed;inset:0;z-index:500;background:radial-gradient(circle at 50% 28%, #1a3a6e 0%, #0B1B3A 70%);align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:24px;box-sizing:border-box;overflow:hidden;">
+  <div id="nivelCompletoConfettiField" style="position:absolute;inset:0;pointer-events:none;overflow:hidden;"></div>
+  <div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:14px;max-width:380px;width:100%;">
+    <div class="level-trophy-wrap">
+      <div class="level-trophy-ring"></div>
+      <div class="level-trophy-ring delay1"></div>
+      <div class="level-trophy-ring delay2"></div>
+      <div class="level-trophy-circle">
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#0B1B3A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 0 1-10 0V4z"></path><path d="M7 5H4a2 2 0 0 0 0 4h1M17 5h3a2 2 0 0 1 0 4h-1"></path></svg>
+      </div>
+    </div>
+    <div class="level-fade" style="animation-delay:.25s;font-family:'Fredoka',sans-serif;font-weight:700;font-size:14px;color:#FFD166;letter-spacing:1.2px;text-transform:uppercase;">¡Subiste de nivel!</div>
+    <div class="level-fade" style="animation-delay:.32s;font-family:'Fredoka',sans-serif;font-weight:700;font-size:28px;color:#FFFFFF;line-height:1.15;" id="nivelCompletoTitulo">&nbsp;</div>
+    <div class="level-fade" style="animation-delay:.4s;background:#FFFFFF;border-radius:18px;padding:16px 18px;width:100%;box-sizing:border-box;display:flex;align-items:center;gap:12px;text-align:left;">
+      <div style="width:44px;height:44px;min-width:44px;border-radius:12px;background:#FF7A29;display:flex;align-items:center;justify-content:center;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-7"></path><path d="M2 7h20v5H2z"></path><path d="M12 22V7"></path><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C10 2 12 7 12 7z"></path><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C14 2 12 7 12 7z"></path></svg>
+      </div>
+      <div>
+        <div style="font-family:'Manrope',sans-serif;font-weight:700;font-size:11px;color:#9AA3B0;text-transform:uppercase;letter-spacing:.4px;">Tu premio</div>
+        <div style="font-family:'Manrope',sans-serif;font-weight:700;font-size:15px;color:#0B1B3A;" id="nivelCompletoPremio">&nbsp;</div>
+      </div>
+    </div>
+    <div class="level-fade" style="animation-delay:.48s;font-family:'Manrope',sans-serif;font-size:13.5px;color:#9FB0D1;">Mostrale esta pantalla al comercio para retirarlo</div>
+    <button onclick="cerrarNivelCompleto()" class="level-fade" style="animation-delay:.55s;margin-top:6px;padding:15px 26px;background:#FF7A29;color:#FFFFFF;border:none;border-radius:14px;font-family:'Manrope',sans-serif;font-weight:700;font-size:14.5px;cursor:pointer;">Ver mi tarjeta</button>
+  </div>
+</div>
+
 <div class="screen" id="suspendidoScreen" style="display:none;align-items:center;justify-content:center;">
   <div style="padding:24px;text-align:center;">
     <div style="font-family:'Fredoka',sans-serif;font-weight:700;font-size:19px;color:#FFFFFF;margin-bottom:8px;">Club no disponible</div>
@@ -139,6 +179,16 @@ function showScreen(id){
   });
   document.getElementById(id).style.display = 'flex';
 }
+
+// Emojis como codepoints unicode (\u{...}): el motor de JS arma el caracter en
+// tiempo de ejecucion, asi que no depende de que el archivo sobreviva intacto
+// a cada copia/guardado/despliegue (evita el bug del emoji-cuadrado-con-signo-de-pregunta).
+const EMOJI = {
+  party: '\u{1F389}',   // 🎉
+  sparkles: '\u{2728}', // ✨
+  confettiBall: '\u{1F38A}', // 🎊
+  coin: '\u{1FA99}'     // 🪙
+};
 
 async function iniciar(){
   if(!SLUG){
@@ -220,27 +270,94 @@ function celebrarMoneda(){
   const glow = document.createElement('div');
   glow.className = 'coin-glow';
   wrap.insertBefore(glow, coin);
-  setTimeout(() => glow.remove(), 900);
+  setTimeout(() => glow.remove(), 1000);
+
+  const flash = document.createElement('div');
+  flash.className = 'screen-flash';
+  document.body.appendChild(flash);
+  setTimeout(() => flash.remove(), 550);
 
   const colores = ['#FF7A29','#2FAE66','#FFD166','#4C8DFF','#FFFFFF'];
-  for(let i=0; i<28; i++){
+  const emojis = [EMOJI.party, EMOJI.sparkles, EMOJI.coin];
+  for(let i=0; i<40; i++){
     const p = document.createElement('div');
-    p.className = 'points-confetti';
     const angle = Math.random() * Math.PI * 2;
-    const dist = 55 + Math.random() * 70;
-    const size = 5 + Math.random() * 5;
-    p.style.width = size + 'px';
-    p.style.height = size + 'px';
+    const dist = 60 + Math.random() * 90;
     p.style.setProperty('--tx', Math.cos(angle)*dist + 'px');
     p.style.setProperty('--ty', Math.sin(angle)*dist + 'px');
     p.style.setProperty('--rot', (Math.random()*360 - 180) + 'deg');
-    p.style.background = colores[i % colores.length];
-    p.style.animationDelay = (Math.random() * 0.15) + 's';
+    p.style.animationDelay = (Math.random() * 0.18) + 's';
+    if(Math.random() < 0.3){
+      p.className = 'points-confetti';
+      p.style.background = 'transparent';
+      p.textContent = emojis[Math.floor(Math.random()*emojis.length)];
+      p.style.fontSize = (13 + Math.random()*9) + 'px';
+      p.style.lineHeight = '1';
+    } else {
+      p.className = 'points-confetti';
+      const size = 5 + Math.random() * 6;
+      p.style.width = size + 'px';
+      p.style.height = size + 'px';
+      p.style.background = colores[i % colores.length];
+      p.style.borderRadius = Math.random() < 0.5 ? '2px' : '50%';
+    }
     wrap.appendChild(p);
-    setTimeout(() => p.remove(), 1400);
+    setTimeout(() => p.remove(), 1500);
   }
 
-  if(navigator.vibrate) navigator.vibrate([15, 40, 15, 40, 20]);
+  if(navigator.vibrate) navigator.vibrate([15, 40, 15, 40, 25]);
+}
+
+function lanzarConfetiLluvia(field, oleadas){
+  const colores = ['#FF7A29','#FFD166','#2FAE66','#4C8DFF','#FFFFFF','#FF5C8A'];
+  const emojis = [EMOJI.party, EMOJI.sparkles, EMOJI.confettiBall, EMOJI.coin];
+  const w = field.clientWidth || 380;
+  for(let o=0; o<oleadas; o++){
+    setTimeout(() => {
+      for(let i=0; i<26; i++){
+        const p = document.createElement('div');
+        const left = Math.random() * w;
+        const delay = Math.random() * 0.4;
+        const duration = 2.3 + Math.random() * 1.5;
+        const drift = (Math.random()*130 - 65) + 'px';
+        p.style.position = 'absolute';
+        p.style.top = '-26px';
+        p.style.left = left + 'px';
+        p.style.setProperty('--drift', drift);
+        p.style.animation = `confettiFall ${duration}s ease-in ${delay}s forwards`;
+        if(Math.random() < 0.35){
+          p.textContent = emojis[Math.floor(Math.random()*emojis.length)];
+          p.style.fontSize = (14 + Math.random()*10) + 'px';
+        } else {
+          const size = 6 + Math.random() * 7;
+          p.style.width = size + 'px';
+          p.style.height = size + 'px';
+          p.style.background = colores[i % colores.length];
+          p.style.borderRadius = Math.random() < 0.5 ? '2px' : '50%';
+        }
+        field.appendChild(p);
+        setTimeout(() => p.remove(), (duration + delay) * 1000 + 150);
+      }
+    }, o * 450);
+  }
+}
+
+function celebrarNivel(nivelActual, premio){
+  const overlay = document.getElementById('nivelCompletoOverlay');
+  if(!overlay) return;
+  document.getElementById('nivelCompletoTitulo').textContent = `¡Nivel ${nivelActual} desbloqueado!`;
+  document.getElementById('nivelCompletoPremio').textContent = premio || 'Consultá con el comercio';
+
+  const field = document.getElementById('nivelCompletoConfettiField');
+  field.innerHTML = '';
+  overlay.style.display = 'flex';
+  lanzarConfetiLluvia(field, 3);
+
+  if(navigator.vibrate) navigator.vibrate([20, 60, 20, 60, 20, 140, 50]);
+}
+
+function cerrarNivelCompleto(){
+  document.getElementById('nivelCompletoOverlay').style.display = 'none';
 }
 
 function mostrarResultado(data){
@@ -251,7 +368,25 @@ function mostrarResultado(data){
   const titleTxt = document.getElementById('resultTitleTxt');
   const subTxt = document.getElementById('resultSubTxt');
 
-  if(data.sumo_moneda){
+  // IMPORTANTE: "nivel completo" se revisa ANTES que "sumo moneda". Cuando el cliente
+  // llega justo a la moneda que completa el nivel, el backend devuelve sumo_moneda Y
+  // nivel_completo juntos en la misma respuesta — si sumo_moneda se revisara primero,
+  // se mostraba "sumaste una moneda" en la vuelta que completa el nivel, y recien
+  // avisaba "subiste de nivel" en el proximo toque. Con este orden, la celebracion
+  // grande de nivel sale exactamente al llegar a la moneda justa.
+  if(data.nivel_completo || data.pendiente_canje){
+    plusOne.style.display = data.sumo_moneda ? 'flex' : 'none';
+    titleTxt.textContent = '¡Nivel completo!';
+    subTxt.textContent = 'Mostrale esta pantalla al comercio para retirar tu premio.';
+    if(data.sumo_moneda){
+      // Primero el festejo chico de la moneda que completo el nivel...
+      setTimeout(celebrarMoneda, 30);
+      // ...y medio segundo despues, la celebracion grande de nivel con el premio.
+      setTimeout(() => celebrarNivel(data.nivel_actual, data.premio_nivel_actual), 550);
+    } else {
+      setTimeout(() => celebrarNivel(data.nivel_actual, data.premio_nivel_actual), 30);
+    }
+  } else if(data.sumo_moneda){
     plusOne.style.display = 'flex';
     titleTxt.textContent = '¡Sumaste una moneda!';
     subTxt.textContent = `Gracias por volver, ${data.nombre}.`;
@@ -262,10 +397,6 @@ function mostrarResultado(data){
     plusOne.style.display = 'none';
     titleTxt.textContent = 'Ya sumaste hace poco';
     subTxt.textContent = 'Volvé a tocar la tarjeta en tu próxima visita.';
-  } else if(data.nivel_completo || data.pendiente_canje){
-    plusOne.style.display = 'none';
-    titleTxt.textContent = '¡Nivel completo!';
-    subTxt.textContent = 'Mostrale esta pantalla al comercio para retirar tu premio.';
   } else {
     plusOne.style.display = 'none';
     titleTxt.textContent = `Hola, ${data.nombre}`;
