@@ -1467,7 +1467,7 @@ function numeroWhatsappInternacional(numero){
 function abrirWhatsapp(numero, mensaje){
   const limpio = numeroWhatsappInternacional(numero);
   if(!limpio){ toast('Este comercio no tiene WhatsApp cargado', true); return; }
-  window.open(`https://wa.me/${limpio}?text=${encodeURIComponent(mensaje)}`, '_blank');
+  window.open(`https://api.whatsapp.com/send?phone=${limpio}&text=${encodeURIComponent(mensaje)}`, '_blank');
 }
 function renderCobrosList(){
   const box = document.getElementById('cobrosList');

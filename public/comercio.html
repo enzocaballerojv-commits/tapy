@@ -407,22 +407,6 @@ function numeroWhatsappInternacional(numero){
   return '595' + limpio;
 }
 
-// Emojis escritos como codepoints unicode (\u{...}) en vez de pegados literalmente:
-// asi el caracter lo arma el motor de JS en tiempo de ejecucion y no depende de que
-// el archivo sobreviva intacto a cada copia/guardado/despliegue en el camino
-// (evita el bug del emoji que aparece como un cuadrado con signo de pregunta).
-const EMOJI = {
-  party: '\u{1F389}',        // 🎉
-  sparkles: '\u{2728}',      // ✨
-  trophy: '\u{1F3C6}',       // 🏆
-  gift: '\u{1F381}',         // 🎁
-  heart: '\u{2764}\u{FE0F}', // ❤️
-  wave: '\u{1F44B}',         // 👋
-  muscle: '\u{1F4AA}',       // 💪
-  coin: '\u{1FA99}',         // 🪙
-  starstruck: '\u{1F929}'    // 🤩
-};
-
 function nombreNegocio(){
   return (STATE.comercio && STATE.comercio.nombre) ? STATE.comercio.nombre : 'nuestro negocio';
 }
@@ -438,11 +422,11 @@ async function canjear(clienteId){
     const numero = numeroWhatsappInternacional(cliente.whatsapp);
     if(numero){
       const negocio = nombreNegocio();
-      const msg = `${EMOJI.party}${EMOJI.sparkles} ¡Felicitaciones, ${cliente.nombre}!\n\n`
-        + `Subiste al *Nivel ${res.nuevo_nivel}* en el club de fidelidad de *${negocio}* ${EMOJI.trophy}\n\n`
-        + `Gracias de corazón por elegirnos una y otra vez ${EMOJI.heart} Cada visita suma, ¡y esto recién empieza!\n\n`
-        + `Te esperamos para seguir sumando ${EMOJI.muscle}`;
-      window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank');
+      const msg = `¡FELICITACIONES, ${cliente.nombre}!\n\n`
+        + `Subiste al *Nivel ${res.nuevo_nivel}* en el club de fidelidad de *${negocio}*.\n\n`
+        + `Gracias de corazón por elegirnos una y otra vez. Cada visita que hacés suma, y esto recién empieza.\n\n`
+        + `Te esperamos con las puertas abiertas para seguir sumando. ¡Nos vemos pronto!`;
+      window.open(`https://api.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(msg)}`, '_blank');
     }
   }catch(e){}
 }
@@ -456,15 +440,15 @@ function nudgeWhatsapp(clienteId){
   const negocio = nombreNegocio();
   let msg;
   if(c.pendiente_canje){
-    msg = `${EMOJI.gift}${EMOJI.party} ¡${c.nombre}, completaste tu nivel en *${negocio}*!\n\n`
-      + `Ya tenés tu premio esperándote ${EMOJI.trophy} Pasá cuando quieras a retirarlo.\n\n`
-      + `¡Gracias por ser parte de nuestro club! ${EMOJI.heart}`;
+    msg = `¡${c.nombre}, COMPLETASTE tu nivel en *${negocio}*!\n\n`
+      + `Tu premio ya está listo y te está esperando. Pasá cuando quieras a retirarlo.\n\n`
+      + `Gracias por ser parte de nuestro club, se nota y lo valoramos un montón.`;
   } else {
     const faltan = Math.max(0, totalNecesario - c.monedas_actuales);
-    msg = `${EMOJI.wave} ¡Hola ${c.nombre}! Te faltan *${faltan} moneda${faltan===1?'':'s'}* para tu próximo premio en *${negocio}* ${EMOJI.coin}${EMOJI.sparkles}\n\n`
-      + `¡Te esperamos pronto! ${EMOJI.starstruck}`;
+    msg = `¡Hola ${c.nombre}! Te faltan *${faltan} moneda${faltan===1?'':'s'}* para tu próximo premio en *${negocio}*.\n\n`
+      + `Estás cada vez más cerca. ¡Te esperamos pronto para seguir sumando!`;
   }
-  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank');
+  window.open(`https://api.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(msg)}`, '_blank');
 }
 
 // ---------- CONFIGURACION ----------
