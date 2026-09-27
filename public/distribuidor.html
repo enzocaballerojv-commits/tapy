@@ -280,6 +280,9 @@
 <div class="toast" id="toast"></div>
 
 <script>
+function escHtml(str){
+  return String(str==null ? '' : str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+}
 let STATE = { chips: [], lotes: [], clients: [], activeChipForQr: null, activeChipForAssign: null, dominioActivo: '' };
 
 async function doLogin(){
@@ -297,7 +300,10 @@ async function doLogin(){
     initApp();
   }catch(e){ errBox.textContent = 'No se pudo conectar. Revisá tu conexión.'; }
 }
-function logout(){ document.cookie = 'distribuidor_auth=; Path=/; Max-Age=0'; location.reload(); }
+async function logout(){
+  try{ await fetch('/api/distribuidor/logout', {method:'POST'}); }catch(e){}
+  location.reload();
+}
 
 async function initApp(){
   await Promise.all([loadLotes(), loadClients(), loadChips(), loadDominio()]);
@@ -345,7 +351,7 @@ async function loadLotes(){
   }catch(e){ STATE.lotes = []; }
   const sel = document.getElementById('filterLote');
   sel.innerHTML = '<option value="">Todos tus lotes</option>' +
-    STATE.lotes.map(l=>`<option value="${l.id}">${l.nombre} (${l.sin_asignar||0} libres)</option>`).join('');
+    STATE.lotes.map(l=>`<option value="${l.id}">${escHtml(l.nombre)} (${l.sin_asignar||0} libres)</option>`).join('');
   toggleExportButton();
 }
 
@@ -406,8 +412,8 @@ function tapsCellHtml(c){
 }
 function qrActionsHtml(c){
   return `<div class="qr-actions-cell">
-    <button class="btn btn-secondary btn-sm" onclick="showQr('${c.slug}', ${c.numero_lote})">Ver QR</button>
-    <button class="btn btn-secondary btn-sm" onclick="copiarLinkNfc('${c.slug}')">Copiar link NFC</button>
+    <button class="btn btn-secondary btn-sm" onclick="showQrPorId(${c.id})">Ver QR</button>
+    <button class="btn btn-secondary btn-sm" onclick="copiarLinkNfcPorId(${c.id})">Copiar link NFC</button>
   </div>`;
 }
 
@@ -416,11 +422,11 @@ function rowHtml(c){
   return `
   <tr>
     <td class="num-cell">${String(c.numero_lote).padStart(3,'0')}</td>
-    <td class="mono">${c.slug}</td>
-    <td><span class="badge badge-${c.status}">${statusLabelOf(c)}</span></td>
-    <td>${isStock ? '<span class="stock-dash">— sin asignar —</span>' : `<span class="empresa-name">${c.client_name||'—'}</span>`}</td>
-    <td>${isStock ? '—' : (c.client_contact_name||'<span class="stock-dash">sin nombre</span>')}</td>
-    <td>${isStock ? '—' : (c.client_whatsapp||'<span class="stock-dash">sin número</span>')}</td>
+    <td class="mono">${escHtml(c.slug)}</td>
+    <td><span class="badge badge-${escHtml(c.status)}">${statusLabelOf(c)}</span></td>
+    <td>${isStock ? '<span class="stock-dash">— sin asignar —</span>' : `<span class="empresa-name">${escHtml(c.client_name||'—')}</span>`}</td>
+    <td>${isStock ? '—' : (c.client_contact_name ? escHtml(c.client_contact_name) : '<span class="stock-dash">sin nombre</span>')}</td>
+    <td>${isStock ? '—' : (c.client_whatsapp ? escHtml(c.client_whatsapp) : '<span class="stock-dash">sin número</span>')}</td>
     <td>${tapsCellHtml(c)}</td>
     <td>${qrActionsHtml(c)}</td>
     <td class="actions-cell">${actionsHtml(c, isStock)}</td>
@@ -432,19 +438,19 @@ function cardHtml(c){
   return `
   <div class="chip-card">
     <div class="chip-card-top">
-      <div class="num-cell">#${String(c.numero_lote).padStart(3,'0')} <span class="mono">${c.slug}</span></div>
-      <span class="badge badge-${c.status}">${statusLabelOf(c)}</span>
+      <div class="num-cell">#${String(c.numero_lote).padStart(3,'0')} <span class="mono">${escHtml(c.slug)}</span></div>
+      <span class="badge badge-${escHtml(c.status)}">${statusLabelOf(c)}</span>
     </div>
     ${isStock
       ? `<div class="chip-card-row stock-dash">Sin asignar todavía</div>`
-      : `<div class="chip-card-row"><b>${c.client_name||'—'}</b></div>
-         <div class="chip-card-row">Contacto: ${c.client_contact_name||'sin nombre'}</div>
-         <div class="chip-card-row">WhatsApp: ${c.client_whatsapp||'sin número'}</div>`
+      : `<div class="chip-card-row"><b>${escHtml(c.client_name||'—')}</b></div>
+         <div class="chip-card-row">Contacto: ${escHtml(c.client_contact_name||'sin nombre')}</div>
+         <div class="chip-card-row">WhatsApp: ${escHtml(c.client_whatsapp||'sin número')}</div>`
     }
     <div class="chip-card-row">Toques: <b>${c.taps_total||0}</b> (NFC ${c.taps_nfc||0} · QR ${c.taps_qr||0})</div>
     <div class="chip-card-actions">
-      <button class="btn btn-secondary btn-sm" onclick="showQr('${c.slug}', ${c.numero_lote})">Ver QR</button>
-      <button class="btn btn-secondary btn-sm" onclick="copiarLinkNfc('${c.slug}')">Copiar NFC</button>
+      <button class="btn btn-secondary btn-sm" onclick="showQrPorId(${c.id})">Ver QR</button>
+      <button class="btn btn-secondary btn-sm" onclick="copiarLinkNfcPorId(${c.id})">Copiar NFC</button>
       ${actionsHtml(c, isStock)}
     </div>
   </div>`;
@@ -454,11 +460,20 @@ function actionsHtml(c, isStock){
   if(isStock){
     return `<button class="btn btn-primary btn-sm" onclick="openAssignModal(${c.id}, ${c.numero_lote})">Asignar</button>`;
   }
-  const destino = (c.destination_url||'').replace(/'/g,"&#39;");
-  const label = (c.label||'').replace(/'/g,"&#39;");
-  return `<button class="btn btn-secondary btn-sm" onclick="openAssignModal(${c.id}, ${c.numero_lote}, ${c.client_id}, '${destino}', '${label}')">Editar</button>
+  if(String(c.tipo||'').startsWith('fidelizacion')){
+    return `<span class="stock-dash">Tarjeta de fidelización</span>`;
+  }
+  return `<button class="btn btn-secondary btn-sm" onclick="openAssignModalPorId(${c.id})">Editar</button>
           <button class="btn btn-danger btn-sm" onclick="liberarChip(${c.id})">Liberar</button>`;
 }
+// Los datos del chip se buscan por id en memoria: nunca viajan dentro del onclick.
+function chipPorId(id){ return STATE.chips.find(x=>x.id===id); }
+function openAssignModalPorId(id){
+  const c = chipPorId(id); if(!c) return;
+  openAssignModal(c.id, c.numero_lote, c.client_id, c.destination_url||'', c.label||'');
+}
+function showQrPorId(id){ const c = chipPorId(id); if(c) showQr(c.slug, c.numero_lote); }
+function copiarLinkNfcPorId(id){ const c = chipPorId(id); if(c) copiarLinkNfc(c.slug); }
 
 function renderStatStrip(){
   const total = STATE.chips.length;
@@ -492,7 +507,7 @@ function openAssignModal(chipId, numero, currentClientId, currentDestino, curren
 }
 function refreshClientSelect(selectedId){
   document.getElementById('asignarClientId').innerHTML = STATE.clients.length
-    ? STATE.clients.map(c=>`<option value="${c.id}" ${c.id==selectedId?'selected':''}>${c.name}${c.contact_name ? ' — '+c.contact_name : ''}</option>`).join('')
+    ? STATE.clients.map(c=>`<option value="${c.id}" ${c.id==selectedId?'selected':''}>${escHtml(c.name)}${c.contact_name ? ' — '+escHtml(c.contact_name) : ''}</option>`).join('')
     : '<option value="">— Todavía no tenés empresas cargadas —</option>';
 }
 function toggleClienteMode(){
@@ -515,6 +530,7 @@ function usarPlaceId(){
 function probarLinkDestino(){
   const url = document.getElementById('asignarDestino').value.trim();
   if(!url){ toast('Todavía no hay ningún link para probar', true); return; }
+  if(!/^https?:\/\//i.test(url)){ toast('El link tiene que empezar con https://', true); return; }
   window.open(url, '_blank');
 }
 function openLinkResenaModal(){
@@ -554,6 +570,7 @@ async function submitAsignar(){
   const destino = document.getElementById('asignarDestino').value.trim();
   const label = document.getElementById('asignarLabel').value.trim();
   if(!destino){ toast('Falta el link de destino', true); return; }
+  if(!/^https?:\/\//i.test(destino)){ toast('El link tiene que empezar con https://', true); return; }
 
   let clientId;
   if(mode === 'existente'){

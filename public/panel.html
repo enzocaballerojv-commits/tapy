@@ -179,6 +179,20 @@
   .cobro-badge-solicitado{background:#fff2e0;color:var(--amber);}
   .cobro-badge-vencido_suspendido{background:#fdecec;color:var(--red);}
   .cobro-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  .cobro-tabs{display:flex;gap:6px;margin:10px 0 12px;}
+  .cobro-tab{padding:8px 14px;border-radius:20px;border:1px solid var(--line);background:white;font-weight:700;font-size:12.5px;color:var(--muted);cursor:pointer;}
+  .cobro-tab.active{background:var(--navy);border-color:var(--navy);color:white;}
+  .cobro-mes{display:flex;justify-content:space-between;padding:10px 12px;background:var(--paper);border-radius:10px;margin:14px 0 6px;font-weight:800;color:var(--navy);font-size:13px;}
+  .cobro-hist-row{display:flex;justify-content:space-between;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:13px;}
+  .fid-metric-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px;}
+  @media(min-width:640px){ .fid-metric-grid{grid-template-columns:repeat(4,1fr);} }
+  .fid-metric{background:var(--paper);border-radius:10px;padding:10px;}
+  .fid-metric b{display:block;font-size:19px;color:var(--navy);}
+  .fid-metric span{font-size:11px;color:var(--muted);}
+  .fid-cli-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .fid-cli-table th{text-align:left;padding:8px;color:var(--muted);font-size:10.5px;text-transform:uppercase;border-bottom:1px solid var(--line);}
+  .fid-cli-table td{padding:8px;border-bottom:1px solid var(--line);}
+  .fid-cli-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;max-height:380px;overflow-y:auto;}
 </style>
 </head>
 <body>
@@ -444,6 +458,7 @@
     <div class="field">
       <label>Contraseña</label>
       <input type="text" id="fidNuevoPassword" placeholder="Definila vos, se la pasás por WhatsApp">
+      <div class="field-hint">Mínimo 6 caracteres. El comercio la puede cambiar después desde su panel.</div>
     </div>
     <div class="field">
       <label>Niveles</label>
@@ -456,7 +471,6 @@
     <div class="field">
       <label>Espera entre sumas de moneda</label>
       <select id="fidNuevoHorasEntreSumas">
-        <option value="0">Instantáneo (sin límite)</option>
         <option value="0.25">15 minutos</option>
         <option value="0.5">30 minutos</option>
         <option value="1">1 hora</option>
@@ -469,8 +483,29 @@
       </select>
     </div>
     <div class="field">
-      <label>Validez del cupón (días)</label>
-      <input type="number" id="fidNuevoValidez" value="90" min="1" max="365">
+      <label>Máximo de monedas por día, por cliente</label>
+      <select id="fidNuevoTopeDiario">
+        <option value="1" selected>1 por día (recomendado)</option>
+        <option value="2">2 por día</option>
+        <option value="3">3 por día</option>
+        <option value="4">4 por día</option>
+        <option value="5">5 por día</option>
+        <option value="10">10 por día</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Las monedas vencen si el cliente no vuelve en</label>
+      <select id="fidNuevoValidez">
+        <option value="14">14 días</option>
+        <option value="21">21 días</option>
+        <option value="30">30 días</option>
+        <option value="45">45 días</option>
+        <option value="60">60 días</option>
+        <option value="90" selected>90 días (recomendado)</option>
+        <option value="120">120 días</option>
+        <option value="180">180 días</option>
+        <option value="365">1 año</option>
+      </select>
     </div>
     <div class="field">
       <label>Cuota mensual (Gs.)</label>
@@ -505,7 +540,6 @@
     <div class="field">
       <label>Espera entre sumas de moneda</label>
       <select id="fidConfigHorasEntreSumas">
-        <option value="0">Instantáneo (sin límite, ej: 1 chop = 1 moneda al toque)</option>
         <option value="0.25">15 minutos</option>
         <option value="0.5">30 minutos</option>
         <option value="1">1 hora</option>
@@ -516,12 +550,39 @@
         <option value="12">12 horas</option>
         <option value="24">24 horas (una vez por día)</option>
       </select>
-      <div class="field-hint">Cuánto tiene que esperar un cliente entre una suma de moneda y la siguiente. Cada comercio elige la suya según su rubro (un bar puede ser instantáneo, un restaurante puede ser una vez al día).</div>
+      <div class="field-hint">Mínimo 15 minutos: evita que alguien sume varias veces en la misma visita.</div>
     </div>
     <div class="field">
-      <label>Validez del cupón (días)</label>
-      <input type="number" id="fidConfigValidez" min="1" max="365">
+      <label>Máximo de monedas por día, por cliente</label>
+      <select id="fidConfigTopeDiario">
+        <option value="1">1 por día (recomendado)</option>
+        <option value="2">2 por día</option>
+        <option value="3">3 por día</option>
+        <option value="4">4 por día</option>
+        <option value="5">5 por día</option>
+        <option value="10">10 por día</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Las monedas vencen si el cliente no vuelve en</label>
+      <select id="fidConfigValidez">
+        <option value="14">14 días</option>
+        <option value="21">21 días</option>
+        <option value="30">30 días</option>
+        <option value="45">45 días</option>
+        <option value="60">60 días</option>
+        <option value="90">90 días (recomendado)</option>
+        <option value="120">120 días</option>
+        <option value="180">180 días</option>
+        <option value="365">1 año</option>
+      </select>
       <div class="field-hint" id="fidConfigValidezHint"></div>
+      <label style="display:flex;gap:8px;align-items:center;font-weight:600;font-size:12px;margin-top:8px;" id="fidConfigResetBox"><input type="checkbox" id="fidConfigResetValidez" style="width:auto;min-height:0;"> Devolverle al comercio su cambio gratuito de este punto</label>
+    </div>
+    <div class="field">
+      <label>Nueva contraseña del panel del comercio (opcional)</label>
+      <input type="text" id="fidConfigPassword" placeholder="Dejalo vacío para no cambiarla" autocomplete="off">
+      <div class="field-hint">Usalo si el comercio se olvidó su contraseña. Mínimo 6 caracteres. Se le cierra la sesión en todos lados.</div>
     </div>
     <div id="fidConfigPremios"></div>
     <div class="modal-actions">
@@ -531,10 +592,26 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modalFidClientes">
+  <div class="modal" style="max-width:760px;">
+    <h3 id="fidClientesTitle">Clientes</h3>
+    <div class="modal-sub">Resultados del club de este comercio y su lista de clientes (solo lectura).</div>
+    <div class="fid-metric-grid" id="fidClientesMetricas"></div>
+    <div id="fidClientesLista"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary btn-block" onclick="closeModal('modalFidClientes')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modalCobros">
   <div class="modal" style="max-width:640px;">
     <h3>Cobros de fidelización</h3>
-    <div class="modal-sub">Ordenado por vencimiento. "Solicitar pago" abre WhatsApp con el mensaje armado y arranca los 3 días de gracia. El switch prende/apaga el sistema para ese comercio en el momento.</div>
+    <div class="cobro-tabs">
+      <button class="cobro-tab active" id="cobroTabPend" onclick="setCobroTab('pendientes')">Pendientes</button>
+      <button class="cobro-tab" id="cobroTabHist" onclick="setCobroTab('historial')">Pagados</button>
+    </div>
+    <div class="modal-sub" id="cobrosSub">Ordenado por vencimiento. "Solicitar pago" abre WhatsApp con el mensaje armado y arranca los 3 días de gracia. El switch prende/apaga el sistema para ese comercio en el momento.</div>
     <div id="cobrosList"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary btn-block" onclick="closeModal('modalCobros')">Cerrar</button>
@@ -560,10 +637,13 @@ async function doLogin(){
     initApp();
   }catch(e){ errBox.textContent = 'No se pudo conectar. Revisá tu conexión.'; }
 }
-function logout(){ document.cookie = 'panel_auth=; Path=/; Max-Age=0'; location.reload(); }
+async function logout(){
+  try{ await fetch('/api/logout', {method:'POST'}); }catch(e){}
+  location.reload();
+}
 
 async function initApp(){
-  await Promise.all([loadLotes(), loadClients(), loadChips(), loadDominio(), loadFidComercios()]);
+  await Promise.all([loadLotes(), loadClients(), loadChips(), loadDominio(), loadFidComercios(), loadMayoristas()]);
   renderStatStrip();
 }
 
@@ -635,7 +715,7 @@ async function loadLotes(){
   }catch(e){ STATE.lotes = []; }
   const sel = document.getElementById('filterLote');
   sel.innerHTML = '<option value="">Todos los lotes</option>' +
-    STATE.lotes.map(l=>`<option value="${l.id}">${l.nombre} (${l.sin_asignar||0} libres)</option>`).join('');
+    STATE.lotes.map(l=>`<option value="${l.id}">${escHtml(l.nombre)} (${l.sin_asignar||0} libres)</option>`).join('');
   toggleExportButton();
 }
 function openLoteModal(){
@@ -734,12 +814,12 @@ function rowHtml(c){
   <tr>
     <td class="chk-cell"><input type="checkbox" class="chip-checkbox" data-chipid="${c.id}" ${checked} onchange="toggleChipSelected(${c.id}, this.checked)"></td>
     <td class="num-cell">${String(c.numero_lote).padStart(3,'0')}</td>
-    <td class="mono">${c.slug}</td>
+    <td class="mono">${escHtml(c.slug)}</td>
     <td><span class="badge badge-${c.status}">${statusLabelOf(c)}</span>${fidelizacionBadgeHtml(c)}</td>
-    <td>${c.distribuidor_nombre ? `<span class="mayorista-badge">${c.distribuidor_nombre}</span>` : '<span class="stock-dash">—</span>'}</td>
-    <td>${isStock ? '<span class="stock-dash">— sin asignar —</span>' : `<span class="empresa-name">${c.client_name||'—'}</span>`}</td>
-    <td>${isStock ? '—' : (c.client_contact_name||'<span class="stock-dash">sin nombre</span>')}</td>
-    <td>${isStock ? '—' : (c.client_whatsapp||'<span class="stock-dash">sin número</span>')}</td>
+    <td>${c.distribuidor_nombre ? `<span class="mayorista-badge">${escHtml(c.distribuidor_nombre)}</span>` : '<span class="stock-dash">—</span>'}</td>
+    <td>${isStock ? '<span class="stock-dash">— sin asignar —</span>' : `<span class="empresa-name">${escHtml(c.client_name||'—')}</span>`}</td>
+    <td>${isStock ? '—' : (c.client_contact_name ? escHtml(c.client_contact_name) : '<span class="stock-dash">sin nombre</span>')}</td>
+    <td>${isStock ? '—' : (c.client_whatsapp ? escHtml(c.client_whatsapp) : '<span class="stock-dash">sin número</span>')}</td>
     <td>${tapsCellHtml(c)}</td>
     <td>${qrActionsHtml(c)}</td>
     <td class="actions-cell">${actionsHtml(c, isStock)}</td>
@@ -758,12 +838,12 @@ function cardHtml(c){
       </label>
       <span class="badge badge-${c.status}">${statusLabelOf(c)}</span>${fidelizacionBadgeHtml(c)}
     </div>
-    ${c.distribuidor_nombre ? `<div class="chip-card-row"><span class="mayorista-badge">${c.distribuidor_nombre}</span></div>` : ''}
+    ${c.distribuidor_nombre ? `<div class="chip-card-row"><span class="mayorista-badge">${escHtml(c.distribuidor_nombre)}</span></div>` : ''}
     ${isStock
       ? `<div class="chip-card-row stock-dash">Sin asignar todavía</div>`
-      : `<div class="chip-card-row"><b>${c.client_name||'—'}</b></div>
-         <div class="chip-card-row">Contacto: ${c.client_contact_name||'sin nombre'}</div>
-         <div class="chip-card-row">WhatsApp: ${c.client_whatsapp||'sin número'}</div>`
+      : `<div class="chip-card-row"><b>${escHtml(c.client_name||'—')}</b></div>
+         <div class="chip-card-row">Contacto: ${escHtml(c.client_contact_name||'sin nombre')}</div>
+         <div class="chip-card-row">WhatsApp: ${escHtml(c.client_whatsapp||'sin número')}</div>`
     }
     <div class="chip-card-row">Toques: <b>${c.taps_total||0}</b> (NFC ${c.taps_nfc||0} · QR ${c.taps_qr||0})</div>
     <div class="chip-card-actions">
@@ -779,10 +859,17 @@ function actionsHtml(c, isStock){
     return `<button class="btn btn-primary btn-sm" onclick="openAssignModal(${c.id}, ${c.numero_lote})">Asignar</button>
             <button class="btn btn-danger btn-sm" onclick="deleteChip(${c.id})">Borrar</button>`;
   }
-  const destino = (c.destination_url||'').replace(/'/g,"&#39;");
-  const label = (c.label||'').replace(/'/g,"&#39;");
-  return `<button class="btn btn-secondary btn-sm" onclick="openAssignModal(${c.id}, ${c.numero_lote}, ${c.client_id}, '${destino}', '${label}')">Editar</button>
+  if(String(c.tipo||'').startsWith('fidelizacion')){
+    return `<span class="field-hint">Tarjeta de fidelización: se maneja desde "Fidelización"</span>`;
+  }
+  return `<button class="btn btn-secondary btn-sm" onclick="openAssignModalPorId(${c.id})">Editar</button>
           <button class="btn btn-danger btn-sm" onclick="liberarChip(${c.id})">Liberar</button>`;
+}
+// Los datos del chip (etiqueta, link) se buscan por id en memoria: nunca viajan dentro del onclick.
+function openAssignModalPorId(id){
+  const c = STATE.chips.find(x=>x.id===id);
+  if(!c) return;
+  openAssignModal(c.id, c.numero_lote, c.client_id, c.destination_url||'', c.label||'');
 }
 
 function renderStatStrip(){
@@ -827,7 +914,7 @@ function openAssignModal(chipId, numero, currentClientId, currentDestino, curren
 function refreshClientSelect(selectedId){
   const real = STATE.clients.filter(c=>c.name !== 'STOCK - Sin Asignar');
   document.getElementById('asignarClientId').innerHTML = real.length
-    ? real.map(c=>`<option value="${c.id}" ${c.id==selectedId?'selected':''}>${c.name}${c.contact_name ? ' — '+c.contact_name : ''}</option>`).join('')
+    ? real.map(c=>`<option value="${c.id}" ${c.id==selectedId?'selected':''}>${escHtml(c.name)}${c.contact_name ? ' — '+escHtml(c.contact_name) : ''}</option>`).join('')
     : '<option value="">— No hay empresas cargadas —</option>';
 }
 function toggleClienteMode(){
@@ -850,6 +937,7 @@ function usarPlaceId(){
 function probarLinkDestino(){
   const url = document.getElementById('asignarDestino').value.trim();
   if(!url){ toast('Todavía no hay ningún link para probar', true); return; }
+  if(!/^https?:\/\//i.test(url)){ toast('El link tiene que empezar con https://', true); return; }
   window.open(url, '_blank');
 }
 function openLinkResenaModal(){
@@ -1095,15 +1183,17 @@ function renderEmpresasList(){
     return `
     <div class="empresa-row">
       <div class="empresa-info">
-        <b>${c.name}</b>
-        <span>${c.contact_name||'sin contacto'} ${c.whatsapp ? '· '+c.whatsapp : ''}</span>
+        <b>${escHtml(c.name)}</b>
+        <span>${escHtml(c.contact_name||'sin contacto')} ${c.whatsapp ? '· '+escHtml(c.whatsapp) : ''}</span>
         ${chipCount>0 ? `<div class="empresa-warn">Tiene ${chipCount} chip(s) activo(s) — se liberan solos al borrar</div>` : ''}
       </div>
-      <button class="btn btn-danger btn-sm" onclick="deleteEmpresa(${c.id}, '${c.name.replace(/'/g,"&#39;")}')">Borrar</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteEmpresa(${c.id})">Borrar</button>
     </div>`;
   }).join('');
 }
-async function deleteEmpresa(id, name){
+async function deleteEmpresa(id){
+  const emp = STATE.clients.find(x=>x.id===id);
+  const name = emp ? emp.name : 'esta empresa';
   if(!confirm(`¿Borrar "${name}"? Si tiene chips asignados, esos chips también se van a borrar (no vuelven a stock). Si preferís conservarlos, liberalos primero desde el inventario.`)) return;
   try{ await apiFetch(`/api/clients/${id}`, {method:'DELETE'}); }catch(e){ return; }
   toast('Empresa borrada');
@@ -1117,12 +1207,34 @@ document.querySelectorAll('.modal-overlay').forEach(ov=>{
 });
 
 // ---------- MAYORISTAS ----------
+async function resetPassMayorista(id){
+  const d = (STATE.distribuidores||[]).find(x=>x.id===id);
+  const nueva = prompt(`Nueva contraseña para ${d ? d.nombre : 'el mayorista'} (mínimo 6 caracteres):`);
+  if(nueva === null) return;
+  if(nueva.trim().length < 6){ toast('La contraseña tiene que tener al menos 6 caracteres', true); return; }
+  try{
+    await apiFetch(`/api/distribuidores/${id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({password: nueva.trim()})});
+  }catch(e){ return; }
+  toast(`Contraseña cambiada. Pasásela por WhatsApp: ${nueva.trim()}`);
+}
+async function toggleMayorista(id, reactivar){
+  const d = (STATE.distribuidores||[]).find(x=>x.id===id);
+  const nombre = d ? d.nombre : 'este mayorista';
+  if(!confirm(reactivar ? `¿Reactivar a ${nombre}? Va a poder volver a entrar a su panel.` : `¿Dar de baja a ${nombre}? No va a poder entrar más a su panel. Los chips que ya vendió siguen funcionando igual.`)) return;
+  try{
+    await apiFetch(`/api/distribuidores/${id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({activo: reactivar})});
+  }catch(e){ return; }
+  toast(reactivar ? 'Mayorista reactivado' : 'Mayorista dado de baja');
+  await loadMayoristas();
+  renderMayoristasList();
+}
 async function loadMayoristas(){
   try{
     STATE.distribuidores = await apiFetch('/api/distribuidores');
   }catch(e){ STATE.distribuidores = []; }
 }
-function openMayoristasModal(){
+async function openMayoristasModal(){
+  await loadMayoristas();
   renderMayoristasList();
   document.getElementById('nuevoMayoristaNombre').value = '';
   document.getElementById('nuevoMayoristaUsuario').value = '';
@@ -1137,11 +1249,16 @@ function renderMayoristasList(){
   }
   box.innerHTML = STATE.distribuidores.map(d=>{
     const lotesDeEste = STATE.lotes.filter(l=>l.distribuidor_id===d.id);
+    const baja = d.activo === 0;
     return `
-    <div class="empresa-row">
+    <div class="empresa-row" style="flex-wrap:wrap;gap:8px;">
       <div class="empresa-info">
-        <b>${d.nombre}</b>
-        <span>Usuario: ${d.usuario} · ${lotesDeEste.length} lote(s) transferido(s)</span>
+        <b>${escHtml(d.nombre)}${baja ? ' <span class="badge badge-suspendido">dado de baja</span>' : ''}</b>
+        <span>Usuario: ${escHtml(d.usuario)} · ${lotesDeEste.length} lote(s) transferido(s)</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-secondary btn-sm" onclick="resetPassMayorista(${d.id})">Nueva contraseña</button>
+        <button class="btn ${baja ? 'btn-secondary' : 'btn-danger'} btn-sm" onclick="toggleMayorista(${d.id}, ${baja ? 'true' : 'false'})">${baja ? 'Reactivar' : 'Dar de baja'}</button>
       </div>
     </div>`;
   }).join('');
@@ -1195,7 +1312,7 @@ function openTransferirModal(){
   if(!STATE.selectedChipIds.size){ toast('Seleccioná al menos un chip primero', true); return; }
   const sel = document.getElementById('transferirDistribuidorId');
   sel.innerHTML = '<option value="">— Sin mayorista (volver a mío) —</option>' +
-    (STATE.distribuidores||[]).map(d=>`<option value="${d.id}">${d.nombre}</option>`).join('');
+    (STATE.distribuidores||[]).map(d=>`<option value="${d.id}">${escHtml(d.nombre)}</option>`).join('');
   document.getElementById('modalTransferir').classList.add('open');
 }
 async function submitTransferir(){
@@ -1250,7 +1367,8 @@ function resetFidForm(){
   document.getElementById('fidNuevoNiveles').value = 5;
   document.getElementById('fidNuevoMonedas').value = 10;
   document.getElementById('fidNuevoHorasEntreSumas').value = '4';
-  document.getElementById('fidNuevoValidez').value = 90;
+  document.getElementById('fidNuevoValidez').value = '90';
+  document.getElementById('fidNuevoTopeDiario').value = '1';
   document.getElementById('fidNuevoMonto').value = '';
 }
 function openFidelizacionModal(){
@@ -1269,7 +1387,7 @@ function refreshFidClientSelect(){
   const yaInscriptos = new Set(STATE.fidComercios.map(f=>f.client_id));
   const disponibles = real.filter(c=>!yaInscriptos.has(c.id));
   document.getElementById('fidNuevoClientId').innerHTML = disponibles.length
-    ? disponibles.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')
+    ? disponibles.map(c=>`<option value="${c.id}">${escHtml(c.name)}</option>`).join('')
     : '<option value="">— No hay empresas disponibles —</option>';
 }
 function refreshFidChipSelects(){
@@ -1289,19 +1407,22 @@ function renderFidComerciosList(){
     <div class="empresa-row" style="flex-direction:column;align-items:stretch;gap:8px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
         <div class="empresa-info">
-          <b>${f.client_name}</b>
+          <b>${escHtml(f.client_name)}</b>
           <span>${f.clientes_total||0} cliente(s) · ${f.niveles} niveles · ${f.monedas_por_nivel} monedas/nivel${f.pendientes_canje>0 ? ' · <b style="color:var(--amber)">'+f.pendientes_canje+' por canjear</b>' : ''}</span>
-          <span>Usuario del panel: <b>${f.usuario||'—'}</b></span>
+          <span>Usuario del panel: <b>${escHtml(f.usuario||'—')}</b></span>
           <span class="badge badge-${f.estado==='activo'?'activo':'suspendido'}" style="margin-top:4px;">${f.estado==='activo'?'Activo':'Suspendido'}</span>
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="openFidConfigModal(${f.id})">Configurar</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+          <button class="btn btn-secondary btn-sm" onclick="openFidClientesModal(${f.id})">Ver clientes</button>
+          <button class="btn btn-secondary btn-sm" onclick="openFidConfigModal(${f.id})">Configurar</button>
+        </div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-secondary btn-sm" ${f.slug_inscripcion?'':'disabled'} onclick="showQrFid('${f.slug_inscripcion}', 'Tarjeta de inscripción — ${(f.client_name||'').replace(/'/g,"\\'")}', 'fid-${f.id}-inscripcion', 'IN')">Ver QR inscripción</button>
+        <button class="btn btn-secondary btn-sm" ${f.slug_inscripcion?'':'disabled'} onclick="showQrFidComercio(${f.id}, 'IN')">Ver QR inscripción</button>
         <button class="btn btn-secondary btn-sm" ${f.slug_inscripcion?'':'disabled'} onclick="copiarLinkNfc('${f.slug_inscripcion}')">Copiar link inscripción</button>
-        <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="showQrFid('${f.slug_puntos}', 'Tarjeta de puntos — ${(f.client_name||'').replace(/'/g,"\\'")}', 'fid-${f.id}-puntos', 'PT')">Ver QR puntos</button>
+        <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="showQrFidComercio(${f.id}, 'PT')">Ver QR puntos</button>
         <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="copiarLinkNfc('${f.slug_puntos}')">Copiar link puntos</button>
-        <button class="btn btn-danger btn-sm" onclick="eliminarFidComercio(${f.id}, '${(f.client_name||'').replace(/'/g,"&#39;")}')">Quitar de fidelización</button>
+        <button class="btn btn-danger btn-sm" onclick="eliminarFidComercio(${f.id})">Quitar de fidelización</button>
       </div>
     </div>
   `).join('');
@@ -1314,12 +1435,14 @@ async function submitFidInscribir(){
   const monedas_por_nivel = parseInt(document.getElementById('fidNuevoMonedas').value, 10);
   const horas_entre_sumas = parseFloat(document.getElementById('fidNuevoHorasEntreSumas').value);
   const validez_dias = parseInt(document.getElementById('fidNuevoValidez').value, 10);
+  const tope_diario = parseInt(document.getElementById('fidNuevoTopeDiario').value, 10);
   const montoRaw = document.getElementById('fidNuevoMonto').value;
   const monto_mensual = montoRaw ? parseFloat(montoRaw) : null;
   const chipInscripcionId = document.getElementById('fidNuevoChipInscripcion').value;
   const chipPuntosId = document.getElementById('fidNuevoChipPuntos').value;
 
   if(!usuario || !password){ toast('Completá usuario y contraseña del panel del comercio', true); return; }
+  if(password.length < 6){ toast('La contraseña del comercio tiene que tener al menos 6 caracteres', true); return; }
   if(chipInscripcionId && chipPuntosId && chipInscripcionId === chipPuntosId){
     toast('Elegí 2 tarjetas distintas para inscripción y puntos', true); return;
   }
@@ -1347,7 +1470,7 @@ async function submitFidInscribir(){
     if(!client_id){ toast('Elegí una empresa', true); return; }
   }
 
-  const body = { client_id, usuario, password, niveles, monedas_por_nivel, horas_entre_sumas, validez_dias, monto_mensual };
+  const body = { client_id, usuario, password, niveles, monedas_por_nivel, horas_entre_sumas, validez_dias, tope_diario, monto_mensual };
   if(chipInscripcionId) body.chip_inscripcion_id = chipInscripcionId;
   if(chipPuntosId) body.chip_puntos_id = chipPuntosId;
 
@@ -1365,7 +1488,15 @@ async function submitFidInscribir(){
   refreshFidChipSelects();
 }
 
-async function eliminarFidComercio(id, nombre){
+function showQrFidComercio(id, tipo){
+  const f = STATE.fidComercios.find(x=>x.id===id);
+  if(!f) return;
+  if(tipo === 'IN') showQrFid(f.slug_inscripcion, 'Tarjeta de inscripción — ' + (f.client_name||''), `fid-${f.id}-inscripcion`, 'IN');
+  else showQrFid(f.slug_puntos, 'Tarjeta de puntos — ' + (f.client_name||''), `fid-${f.id}-puntos`, 'PT');
+}
+async function eliminarFidComercio(id){
+  const fc = STATE.fidComercios.find(x=>x.id===id);
+  const nombre = fc ? fc.client_name : 'este comercio';
   if(!confirm(`¿Quitar a "${nombre}" de Fidelización? Se borran sus clientes, premios y cobros de este programa (la empresa en sí no se borra). Las 2 tarjetas NFC/QR vuelven a tu stock libre para reasignar.`)) return;
   try{ await apiFetch(`/api/fidelizacion/comercios/${id}`, {method:'DELETE'}); }catch(e){ return; }
   toast('Comercio quitado de fidelización. Sus 2 tarjetas volvieron a stock.');
@@ -1386,10 +1517,21 @@ async function openFidConfigModal(comercioId){
   const horasVal = String(f.horas_entre_sumas === null || f.horas_entre_sumas === undefined ? 4 : f.horas_entre_sumas);
   horasSel.value = horasVal;
   if(horasSel.value !== horasVal) horasSel.value = '4'; // valor custom no listado: mostramos el recomendado
-  document.getElementById('fidConfigValidez').value = f.validez_dias;
+  const topeSel = document.getElementById('fidConfigTopeDiario');
+  topeSel.value = String(f.tope_diario || 3);
+  if(topeSel.value !== String(f.tope_diario || 3)) topeSel.value = '3';
+  const valSel = document.getElementById('fidConfigValidez');
+  valSel.value = String(f.validez_dias);
+  if(valSel.value !== String(f.validez_dias)){
+    const op = document.createElement('option'); op.value = String(f.validez_dias); op.textContent = f.validez_dias + ' días';
+    valSel.appendChild(op); valSel.value = String(f.validez_dias);
+  }
   document.getElementById('fidConfigValidezHint').textContent = f.validez_editada_por_comercio
-    ? 'El comercio ya usó su cambio gratuito de este campo. Si lo modificás vos acá no le consume otro cambio a él.'
-    : 'El comercio todavía tiene disponible su primer cambio gratuito de este campo.';
+    ? 'El comercio ya usó su cambio gratuito de este punto. Si lo cambiás vos acá no le consume nada.'
+    : 'El comercio todavía tiene disponible su cambio gratuito de este punto.';
+  document.getElementById('fidConfigResetBox').style.display = f.validez_editada_por_comercio ? 'flex' : 'none';
+  document.getElementById('fidConfigResetValidez').checked = false;
+  document.getElementById('fidConfigPassword').value = '';
 
   let premios = [];
   try{ premios = await apiFetch(`/api/fidelizacion/comercios/${comercioId}/premios`); }catch(e){ premios = []; }
@@ -1411,15 +1553,21 @@ async function submitFidConfigGuardar(){
   const monedas_por_nivel = parseInt(document.getElementById('fidConfigMonedas').value, 10);
   const horas_entre_sumas = parseFloat(document.getElementById('fidConfigHorasEntreSumas').value);
   const validez_dias = parseInt(document.getElementById('fidConfigValidez').value, 10);
+  const tope_diario = parseInt(document.getElementById('fidConfigTopeDiario').value, 10);
+  const nuevaPass = document.getElementById('fidConfigPassword').value.trim();
+  if(nuevaPass && nuevaPass.length < 6){ toast('La contraseña nueva tiene que tener al menos 6 caracteres', true); return; }
+  const cuerpo = { niveles, monedas_por_nivel, horas_entre_sumas, validez_dias, tope_diario };
+  if(nuevaPass) cuerpo.password = nuevaPass;
+  if(document.getElementById('fidConfigResetValidez').checked) cuerpo.resetear_bloqueo_validez = true;
   try{
     await apiFetch(`/api/fidelizacion/comercios/${id}`, {
       method:'PATCH', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ niveles, monedas_por_nivel, horas_entre_sumas, validez_dias })
+      body: JSON.stringify(cuerpo)
     });
     const premios = [];
     for(let n=1; n<=niveles; n++){
       const input = document.getElementById('fidPremioNivel'+n);
-      if(input && input.value.trim()) premios.push({ nivel:n, descripcion: input.value.trim() });
+      if(input) premios.push({ nivel:n, descripcion: input.value.trim() });
     }
     if(premios.length){
       await apiFetch(`/api/fidelizacion/comercios/${id}/premios`, {
@@ -1428,10 +1576,60 @@ async function submitFidConfigGuardar(){
       });
     }
   }catch(e){ return; }
-  toast('Configuración guardada');
+  toast(nuevaPass ? `Configuración guardada. Nueva contraseña del comercio: ${nuevaPass}` : 'Configuración guardada');
   closeModal('modalFidConfig');
   await loadFidComercios();
   renderFidComerciosList();
+}
+
+// ---------- CLIENTES DE UN COMERCIO (solo lectura) ----------
+function escHtml(str){
+  return String(str==null ? '' : str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+}
+function fechaDbCorta(s){
+  if(!s) return '—';
+  const d = new Date(String(s).replace(' ','T') + (/[zZ]$/.test(s) ? '' : 'Z'));
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-PY', {day:'2-digit', month:'2-digit', year:'2-digit'});
+}
+async function openFidClientesModal(comercioId){
+  const f = STATE.fidComercios.find(x=>x.id===comercioId);
+  document.getElementById('fidClientesTitle').textContent = 'Clientes — ' + (f ? f.client_name : '');
+  document.getElementById('fidClientesMetricas').innerHTML = '';
+  document.getElementById('fidClientesLista').innerHTML = '<div class="empty-state">Cargando...</div>';
+  document.getElementById('modalFidClientes').classList.add('open');
+  let m, lista;
+  try{
+    [m, lista] = await Promise.all([
+      apiFetch(`/api/fidelizacion/comercios/${comercioId}/metricas`),
+      apiFetch(`/api/fidelizacion/comercios/${comercioId}/clientes`)
+    ]);
+  }catch(e){ document.getElementById('fidClientesLista').innerHTML = ''; return; }
+  document.getElementById('fidClientesMetricas').innerHTML = `
+    <div class="fid-metric"><b>${m.visitas_mes}</b><span>Visitas este mes (mes pasado: ${m.visitas_mes_anterior})</span></div>
+    <div class="fid-metric"><b>${m.clientes_total}</b><span>Clientes (${m.nuevos_mes} nuevos este mes)</span></div>
+    <div class="fid-metric"><b>${m.tasa_retorno}%</b><span>Volvieron 2+ veces (${m.clientes_recurrentes})</span></div>
+    <div class="fid-metric"><b>${m.premios_mes}</b><span>Premios este mes (${m.premios_total} en total)</span></div>
+    <div class="fid-metric"><b>${m.activos_30}</b><span>Activos últimos 30 días</span></div>
+    <div class="fid-metric"><b>${m.esperando_premio}</b><span>Esperando premio</span></div>
+    <div class="fid-metric"><b>${m.por_vencer}</b><span>Monedas por vencer (7 días)</span></div>
+    <div class="fid-metric"><b>${m.monedas_vencidas_mes}</b><span>Monedas vencidas este mes</span></div>`;
+  if(!lista.length){
+    document.getElementById('fidClientesLista').innerHTML = '<div class="empty-state"><div class="big">Todavía no tiene clientes</div></div>';
+    return;
+  }
+  document.getElementById('fidClientesLista').innerHTML = `
+    <div class="fid-cli-wrap"><table class="fid-cli-table">
+      <thead><tr><th>Cliente</th><th>WhatsApp</th><th>Nivel</th><th>Monedas</th><th>Visitas</th><th>Última visita</th><th>Desde</th></tr></thead>
+      <tbody>${lista.map(c=>`<tr>
+        <td><b>${escHtml(c.nombre)}</b>${c.pendiente_canje?' <span class="cobro-badge cobro-badge-solicitado">premio</span>':''}</td>
+        <td>${c.whatsapp ? escHtml(String(c.whatsapp).length===9 ? `0${c.whatsapp.slice(0,3)} ${c.whatsapp.slice(3,6)} ${c.whatsapp.slice(6)}` : '0'+c.whatsapp) : '—'}</td>
+        <td>${c.nivel_actual}${c.vueltas_completadas?` (vuelta ${c.vueltas_completadas+1})`:''}</td>
+        <td>${c.monedas_actuales}</td>
+        <td>${c.visitas||0}</td>
+        <td>${fechaDbCorta(c.ultimo_tap)}</td>
+        <td>${fechaDbCorta(c.created_at)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
 }
 
 // ---------- COBROS ----------
@@ -1439,8 +1637,39 @@ async function loadCobros(){
   try{ STATE.cobros = await apiFetch('/api/cobros'); }catch(e){ STATE.cobros = []; }
 }
 function openCobrosModal(){
-  loadCobros().then(renderCobrosList);
+  setCobroTab('pendientes');
   document.getElementById('modalCobros').classList.add('open');
+}
+async function setCobroTab(tab){
+  STATE.cobroTab = tab;
+  document.getElementById('cobroTabPend').classList.toggle('active', tab === 'pendientes');
+  document.getElementById('cobroTabHist').classList.toggle('active', tab === 'historial');
+  document.getElementById('cobrosSub').textContent = tab === 'pendientes'
+    ? 'Ordenado por vencimiento. "Solicitar pago" abre WhatsApp con el mensaje armado y arranca los 3 días de gracia. El switch prende/apaga el sistema para ese comercio en el momento.'
+    : 'Todo lo que ya cobraste, agrupado por mes en que lo cobraste.';
+  if(tab === 'pendientes'){ await loadCobros(); renderCobrosList(); }
+  else { await renderCobrosHistorial(); }
+}
+async function renderCobrosHistorial(){
+  const box = document.getElementById('cobrosList');
+  box.innerHTML = '<div class="empty-state">Cargando...</div>';
+  let rows = [];
+  try{ rows = await apiFetch('/api/cobros/historial'); }catch(e){ box.innerHTML = ''; return; }
+  if(!rows.length){ box.innerHTML = '<div class="empty-state"><div class="big">Todavía no hay cobros pagados</div></div>'; return; }
+  const porMes = {};
+  rows.forEach(r=>{
+    const k = (r.fecha_pagado||'').slice(0,7) || 'sin fecha';
+    (porMes[k] = porMes[k] || []).push(r);
+  });
+  const gs = n => 'Gs. ' + Number(n||0).toLocaleString('es-PY');
+  box.innerHTML = Object.keys(porMes).sort().reverse().map(k=>{
+    const lista = porMes[k];
+    const total = lista.reduce((a,r)=>a + (Number(r.monto)||0), 0);
+    const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const titulo = k === 'sin fecha' ? 'Sin fecha' : `${MESES_ES[parseInt(k.slice(5,7),10)-1]} ${k.slice(0,4)}`;
+    return `<div class="cobro-mes"><span>${titulo}</span><span>${gs(total)}</span></div>`
+      + lista.map(r=>`<div class="cobro-hist-row"><span><b>${escHtml(r.comercio_nombre)}</b><div class="field-hint">Período ${r.periodo||'—'} · pagado el ${fechaDbCorta(r.fecha_pagado)}</div></span><span>${r.monto ? gs(r.monto) : 'sin monto'}</span></div>`).join('');
+  }).join('');
 }
 function cobroBadgeLabel(estado){
   if(estado==='solicitado') return 'En gracia (3 días)';
@@ -1450,7 +1679,7 @@ function cobroBadgeLabel(estado){
 function mensajeSolicitarPago(row){
   const mesTxt = new Date(row.fecha_vencimiento+'T00:00:00').toLocaleDateString('es-PY', {month:'long', year:'numeric'});
   const monto = row.monto ? `Gs. ${Number(row.monto).toLocaleString('es-PY')}` : 'a confirmar';
-  return `Hola ${row.comercio_nombre}! Te escribimos de Tapy por el cobro de ${mesTxt}. Actualmente tenés ${row.clientes_actuales||0} clientes registrados en tu fidelización. Monto: ${monto}. Tenés 3 días corridos desde este mensaje para regularizar el pago antes de que el sistema se desactive automáticamente. Podés transferir a - Alias: Cédula: 5201390, Banco: GNB, Nombre: Enzo Caballero. ¡Gracias!`;
+  return `Hola ${row.comercio_nombre}! Te escribimos de Tapy por el cobro de ${mesTxt}. Actualmente tenés ${row.clientes_actuales||0} clientes registrados en tu fidelización. Monto: ${monto}. Tenés 3 días corridos desde este mensaje para regularizar el pago antes de que el sistema se desactive automáticamente. Podés transferir a: Alias (cédula) 5201390, Banco GNB, a nombre de Enzo Caballero. ¡Gracias!`;
 }
 function mensajePagoConfirmado(row){
   const mesTxt = new Date(row.fecha_vencimiento+'T00:00:00').toLocaleDateString('es-PY', {month:'long', year:'numeric'});
@@ -1479,7 +1708,7 @@ function renderCobrosList(){
     <div class="cobro-row">
       <div class="cobro-row-top">
         <div>
-          <b>${row.comercio_nombre}</b>
+          <b>${escHtml(row.comercio_nombre)}</b>
           <div class="field-hint">Vence: ${row.fecha_vencimiento} · ${row.monto ? ('Gs. '+Number(row.monto).toLocaleString('es-PY')) : 'monto sin definir'}</div>
         </div>
         <label class="switch" title="Encender / apagar el sistema para este comercio">
