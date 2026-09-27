@@ -12,18 +12,111 @@ var index_default = {
       }
       const chipMatch = path.match(/^\/c\/([^/]+)$/);
       if (chipMatch) {
-        return handleChipRedirect(chipMatch[1], env, ctx, request);
+        // Tarjetas NFC/QR impresas: este camino tiene que funcionar para siempre. No se le agrega nada.
+        return await handleChipRedirect(chipMatch[1], env, ctx, request);
       }
       if (path.startsWith("/api/")) {
-        return handleApi(request, env, path);
+        const bloqueo = bloquearOrigenAjeno(request, url);
+        if (bloqueo) return conCabecerasSeguridad(bloqueo, path);
+        let res = await handleApi(request, env, path);
+        // Afuera del panel de Tapy, un error interno nunca muestra detalles de la base de datos.
+        if (res.status >= 500 && !esRutaDelDueno(path)) {
+          res = json({ error: "Error interno. Probá de nuevo en un momento." }, res.status);
+        }
+        return conCabecerasSeguridad(res, path);
       }
-      return env.ASSETS.fetch(request);
+      return conCabecerasSeguridad(await env.ASSETS.fetch(request), path);
     } catch (err) {
       console.error(err);
       return new Response("Error interno", { status: 500 });
     }
   }
 };
+
+// ---------- SEGURIDAD GENERAL ----------
+
+var PAGINAS_PROPIAS = new Set([
+  "/panel.html", "/panel", "/distribuidor.html", "/distribuidor", "/comercio.html", "/comercio",
+  "/fidelizacion-inscripcion.html", "/fidelizacion-inscripcion", "/fidelizacion-puntos.html", "/fidelizacion-puntos"
+]);
+// Que puede cargar cada pagina propia: solo este dominio, las librerias de cdnjs y las fuentes de Google.
+var CSP_PAGINAS = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "img-src 'self' data: blob:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'"
+].join("; ");
+
+function conCabecerasSeguridad(res, path) {
+  const r = new Response(res.body, res);
+  const h = r.headers;
+  h.set("X-Content-Type-Options", "nosniff");
+  h.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  h.set("X-Frame-Options", "DENY");
+  h.set("Strict-Transport-Security", "max-age=31536000");
+  h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  if (PAGINAS_PROPIAS.has(path)) h.set("Content-Security-Policy", CSP_PAGINAS);
+  if (path.startsWith("/api/")) h.set("Cache-Control", "no-store");
+  return r;
+}
+__name(conCabecerasSeguridad, "conCabecerasSeguridad");
+
+// Proteccion contra pedidos falsificados desde otra pagina (CSRF): toda escritura tiene que venir
+// de una pagina de este mismo dominio.
+function bloquearOrigenAjeno(request, url) {
+  const m = request.method;
+  if (m === "GET" || m === "HEAD" || m === "OPTIONS") return null;
+  const origin = request.headers.get("Origin");
+  if (!origin) return null;
+  let host = null;
+  try { host = new URL(origin).host; } catch (e) { host = null; }
+  if (host !== url.host) return json({ error: "Pedido rechazado" }, 403);
+  return null;
+}
+__name(bloquearOrigenAjeno, "bloquearOrigenAjeno");
+
+function esRutaDelDueno(path) {
+  return !path.startsWith("/api/public/") && !path.startsWith("/api/comercio/") && !path.startsWith("/api/distribuidor/");
+}
+__name(esRutaDelDueno, "esRutaDelDueno");
+
+function safeDecode(v) {
+  try { return decodeURIComponent(v); } catch (e) { return null; }
+}
+__name(safeDecode, "safeDecode");
+
+// Comparacion que tarda lo mismo sin importar donde difieren (no deja adivinar de a un caracter).
+function igualSeguro(a, b) {
+  a = String(a == null ? "" : a);
+  b = String(b == null ? "" : b);
+  const len = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < len; i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  return diff === 0;
+}
+__name(igualSeguro, "igualSeguro");
+
+function urlSegura(u) {
+  if (!u) return false;
+  const txt = String(u).trim();
+  if (txt.length > 2000) return false;
+  try {
+    const x = new URL(txt);
+    return x.protocol === "https:" || x.protocol === "http:";
+  } catch (e) {
+    return false;
+  }
+}
+__name(urlSegura, "urlSegura");
+
+// Dominios desde los que se arman links y QR. Si algun dia sumas un dominio nuevo, agregalo aca.
+var DOMINIOS_PERMITIDOS = ["https://app.tapy.site", "https://tapy.enzocaballero-jv.workers.dev"];
 
 async function handleChipRedirect(slug, env, ctx, request) {
   const fallbackUrl = new URL(FALLBACK_PATH, request.url).toString();
@@ -45,7 +138,7 @@ async function handleChipRedirect(slug, env, ctx, request) {
     }
 
     const url = new URL(request.url);
-    const source = url.searchParams.get("src") || "nfc";
+    const source = url.searchParams.get("src") === "qr" ? "qr" : "nfc";
 
     ctx.waitUntil(
       env.DB.prepare(`INSERT INTO taps (chip_id, source) VALUES (?, ?)`).bind(row.chip_id, source).run().catch(() => {})
@@ -72,7 +165,7 @@ __name(json, "json");
 function getCookieToken(request) {
   const cookie = request.headers.get("Cookie") || "";
   const match = cookie.match(/panel_auth=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
+  return match ? safeDecode(match[1]) : null;
 }
 __name(getCookieToken, "getCookieToken");
 
@@ -80,6 +173,12 @@ async function handleApi(request, env, path) {
   const method = request.method;
   if (path === "/api/login" && method === "POST") {
     return apiLogin(request, env);
+  }
+  if (path === "/api/logout" && method === "POST") {
+    return respuestaConCookie({ ok: true }, "panel_auth=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0");
+  }
+  if (path === "/api/distribuidor/logout" && method === "POST") {
+    return respuestaConCookie({ ok: true }, "distribuidor_auth=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0");
   }
 
   if (path === "/api/distribuidor/login" && method === "POST") {
@@ -100,6 +199,9 @@ async function handleApi(request, env, path) {
   if (path === "/api/comercio/login" && method === "POST") {
     return apiComercioLogin(request, env);
   }
+  if (path === "/api/comercio/logout" && method === "POST") {
+    return apiComercioLogout();
+  }
   if (path.startsWith("/api/comercio/")) {
     const comercio = await requireComercio(request, env);
     if (!comercio) return json({ error: "No autorizado" }, 401);
@@ -109,7 +211,7 @@ async function handleApi(request, env, path) {
   if (!env.PANEL_PASSWORD) {
     return json({ error: "Falta configurar la variable PANEL_PASSWORD en el Worker" }, 500);
   }
-  if (getCookieToken(request) !== env.PANEL_PASSWORD) {
+  if (!(await esAdmin(request, env))) {
     return json({ error: "No autorizado" }, 401);
   }
 
@@ -143,6 +245,8 @@ async function handleApi(request, env, path) {
 
   if (path === "/api/distribuidores" && method === "GET") return apiDistribuidoresList(env);
   if (path === "/api/distribuidores" && method === "POST") return apiDistribuidoresCreate(request, env);
+  const distPatchMatch = path.match(/^\/api\/distribuidores\/(\d+)$/);
+  if (distPatchMatch && method === "PATCH") return apiDistribuidorPatch(distPatchMatch[1], request, env);
   if (path === "/api/chips/transferir" && method === "POST") return apiChipsTransferir(request, env);
 
   // ---------- FIDELIZACION: panel admin (Tapy) ----------
@@ -159,9 +263,12 @@ async function handleApi(request, env, path) {
   if (fidEstadoMatch && method === "POST") return apiFidComercioEstado(fidEstadoMatch[1], request, env);
   const fidClientesMatch = path.match(/^\/api\/fidelizacion\/comercios\/(\d+)\/clientes$/);
   if (fidClientesMatch && method === "GET") return apiFidComercioClientes(fidClientesMatch[1], env);
+  const fidMetricasMatch = path.match(/^\/api\/fidelizacion\/comercios\/(\d+)\/metricas$/);
+  if (fidMetricasMatch && method === "GET") return apiFidComercioMetricas(fidMetricasMatch[1], env);
 
   // ---------- COBROS: panel admin (Tapy) ----------
   if (path === "/api/cobros" && method === "GET") return apiCobrosList(env);
+  if (path === "/api/cobros/historial" && method === "GET") return apiCobrosHistorial(env);
   const cobroSolicitarMatch = path.match(/^\/api\/cobros\/(\d+)\/solicitar$/);
   if (cobroSolicitarMatch && method === "POST") return apiCobroSolicitar(cobroSolicitarMatch[1], env);
   const cobroPagadoMatch = path.match(/^\/api\/cobros\/(\d+)\/pagado$/);
@@ -171,6 +278,23 @@ async function handleApi(request, env, path) {
 }
 __name(handleApi, "handleApi");
 
+// Sesion del dueño: la cookie ya NO guarda la contraseña. Guarda un permiso firmado que vence a
+// los 30 dias y que deja de valer apenas cambies PANEL_PASSWORD.
+var DURACION_SESION_SEG = 30 * 24 * 3600;
+async function tokenAdmin(env, exp) {
+  const huella = await sha256Hex(`panel:${env.PANEL_PASSWORD || ""}`);
+  return `a1.${exp}.${await signWithSecret(env, `admin|${exp}|${huella}`)}`;
+}
+async function esAdmin(request, env) {
+  if (!env.PANEL_PASSWORD) return false;
+  const t = getCookieToken(request);
+  if (!t) return false;
+  const partes = t.split(".");
+  if (partes.length !== 3 || partes[0] !== "a1") return false;
+  const exp = parseInt(partes[1], 10);
+  if (!(exp > Math.floor(Date.now() / 1000))) return false;
+  return igualSeguro(await tokenAdmin(env, exp), t);
+}
 async function apiLogin(request, env) {
   if (!env.PANEL_PASSWORD) return json({ error: "Falta configurar PANEL_PASSWORD" }, 500);
   let body;
@@ -179,12 +303,16 @@ async function apiLogin(request, env) {
   } catch {
     return json({ error: "Body invalido" }, 400);
   }
-  if (!body.password || body.password !== env.PANEL_PASSWORD) {
+  const claveIp = `admin:ip:${ipDe(request)}`;
+  if (await superoLimite(env, claveIp, 10, 15)) {
+    return json({ error: "Demasiados intentos fallidos. Esperá 15 minutos y probá de nuevo." }, 429);
+  }
+  if (!body.password || !igualSeguro(body.password, env.PANEL_PASSWORD)) {
+    await registrarIntentoFallido(env, claveIp);
     return json({ error: "Contrasena incorrecta" }, 401);
   }
-  const headers = new Headers({ "Content-Type": "application/json" });
-  headers.append("Set-Cookie", `panel_auth=${encodeURIComponent(body.password)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
-  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+  const exp = Math.floor(Date.now() / 1000) + DURACION_SESION_SEG;
+  return respuestaConCookie({ ok: true }, `panel_auth=${encodeURIComponent(await tokenAdmin(env, exp))}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${DURACION_SESION_SEG}`);
 }
 __name(apiLogin, "apiLogin");
 
@@ -335,6 +463,10 @@ async function apiChipsCreate(request, env) {
     if (!body.client_id || !body.slug || !body.destination_url) {
       return json({ error: "Faltan campos obligatorios: client_id, slug, destination_url" }, 400);
     }
+    if (!urlSegura(body.destination_url) || (body.suspended_url && !urlSegura(body.suspended_url))) {
+      return json({ error: "El link tiene que empezar con https:// (o http://)" }, 400);
+    }
+    if (!/^[a-z0-9-]{1,40}$/.test(String(body.slug))) return json({ error: "El slug solo puede tener minúsculas, números y guiones" }, 400);
     const existing = await env.DB.prepare(`SELECT id FROM chips WHERE slug = ?`).bind(body.slug).first();
     if (existing) return json({ error: "Ese slug ya existe, elegi otro" }, 409);
     const result = await env.DB.prepare(
@@ -362,6 +494,9 @@ async function apiChipPatch(id, request, env) {
     const allowed = ["label", "destination_url", "suspended_url", "password_note"];
     const fields = Object.keys(body).filter((k) => allowed.includes(k));
     if (fields.length === 0) return json({ error: "Nada valido para actualizar" }, 400);
+    for (const k of ["destination_url", "suspended_url"]) {
+      if (body[k] && !urlSegura(body[k])) return json({ error: "El link tiene que empezar con https:// (o http://)" }, 400);
+    }
     const setClause = fields.map((f) => `${f} = ?`).join(", ");
     const values = fields.map((f) => body[f]);
     await env.DB.prepare(`UPDATE chips SET ${setClause}, last_reprogrammed = datetime('now') WHERE id = ?`).bind(...values, id).run();
@@ -374,7 +509,7 @@ __name(apiChipPatch, "apiChipPatch");
 
 async function apiSettingsGet(env) {
   try {
-    const { results } = await env.DB.prepare(`SELECT key, value FROM settings`).all();
+    const { results } = await env.DB.prepare(`SELECT key, value FROM settings WHERE key != 'secreto_sesiones'`).all();
     const obj = {};
     results.forEach((r) => { obj[r.key] = r.value; });
     return json(obj);
@@ -384,14 +519,22 @@ async function apiSettingsGet(env) {
 }
 __name(apiSettingsGet, "apiSettingsGet");
 
+// Solo se puede guardar el dominio activo, y solo uno de los dominios de Tapy.
 async function apiSettingsPost(request, env) {
   try {
     const body = await request.json();
-    for (const [key, value] of Object.entries(body)) {
-      await env.DB.prepare(
-        `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-      ).bind(key, String(value)).run();
+    const claves = Object.keys(body || {});
+    if (!claves.length || claves.some((k) => k !== "dominio_activo")) {
+      return json({ error: "Solo se puede cambiar el dominio activo" }, 400);
     }
+    const dominio = String(body.dominio_activo || "").trim().replace(/\/+$/, "");
+    const propio = new URL(request.url).origin;
+    if (!DOMINIOS_PERMITIDOS.includes(dominio) && dominio !== propio) {
+      return json({ error: "Ese dominio no es de Tapy" }, 400);
+    }
+    await env.DB.prepare(
+      `INSERT INTO settings (key, value) VALUES ('dominio_activo', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    ).bind(dominio).run();
     return json({ ok: true });
   } catch (err) {
     return json({ error: err.message }, 500);
@@ -424,11 +567,11 @@ async function apiReportsDue(env) {
 __name(apiReportsDue, "apiReportsDue");
 
 function generateSlug(length = 6) {
-  const chars = "abcdefghijkmnpqrstuvwxyz23456789";
+  const chars = "abcdefghijkmnpqrstuvwxyz23456789"; // 32 caracteres: cada byte % 32 es parejo
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
   let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars[Math.floor(Math.random() * chars.length)];
-  }
+  for (let i = 0; i < length; i++) result += chars[bytes[i] % chars.length];
   return result;
 }
 
@@ -517,11 +660,21 @@ async function apiLoteExport(loteId, env) {
   }
 }
 
+var MENSAJE_CHIP_FID = "Este chip es una tarjeta de fidelización. Para liberarlo, quitá el comercio desde Fidelización (así no queda a medio conectar).";
+async function esChipFidelizacion(env, chipId) {
+  const row = await env.DB.prepare(`SELECT tipo FROM chips WHERE id = ?`).bind(chipId).first();
+  return !!(row && String(row.tipo || "").startsWith("fidelizacion"));
+}
+
 async function apiChipAsignar(chipId, request, env) {
   try {
+    if (await esChipFidelizacion(env, chipId)) return json({ error: MENSAJE_CHIP_FID }, 409);
     const body = await request.json();
     if (!body.client_id || !body.destination_url) {
       return json({ error: "Faltan campos obligatorios: client_id, destination_url" }, 400);
+    }
+    if (!urlSegura(body.destination_url)) {
+      return json({ error: "El link tiene que empezar con https:// (o http://)" }, 400);
     }
     const chip = await env.DB.prepare(`SELECT status FROM chips WHERE id = ?`).bind(chipId).first();
     if (!chip) return json({ error: "Chip no encontrado" }, 404);
@@ -539,6 +692,7 @@ async function apiChipAsignar(chipId, request, env) {
 
 async function apiChipLiberar(chipId, env) {
   try {
+    if (await esChipFidelizacion(env, chipId)) return json({ error: MENSAJE_CHIP_FID }, 409);
     const stockClientId = await getStockClientId(env);
     await env.DB.prepare(
       `UPDATE chips SET client_id = ?, destination_url = ?, status = 'sin_asignar', label = NULL WHERE id = ?`
@@ -577,19 +731,22 @@ __name(sha256Hex, "sha256Hex");
 function getDistribuidorCookie(request) {
   const cookie = request.headers.get("Cookie") || "";
   const match = cookie.match(/distribuidor_auth=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
+  return match ? safeDecode(match[1]) : null;
 }
 __name(getDistribuidorCookie, "getDistribuidorCookie");
 
+async function tokenDistribuidor(env, dist) {
+  return `d1.${dist.id}.${await signWithSecret(env, `dist|${dist.id}|${dist.password_hash}`)}`;
+}
 async function requireDistribuidor(request, env) {
   const token = getDistribuidorCookie(request);
   if (!token) return null;
-  const parts = token.split(":");
-  if (parts.length !== 2) return null;
-  const [idStr, hash] = parts;
-  const dist = await env.DB.prepare(`SELECT * FROM distribuidores WHERE id = ?`).bind(idStr).first();
-  if (!dist || dist.password_hash !== hash) return null;
-  return dist;
+  const partes = token.split(".");
+  if (partes.length !== 3 || partes[0] !== "d1" || !/^\d+$/.test(partes[1])) return null;
+  const dist = await env.DB.prepare(`SELECT * FROM distribuidores WHERE id = ?`).bind(partes[1]).first();
+  if (!dist || !dist.password_hash) return null;
+  if (dist.activo === 0) return null; // mayorista dado de baja
+  return igualSeguro(await tokenDistribuidor(env, dist), token) ? dist : null;
 }
 __name(requireDistribuidor, "requireDistribuidor");
 
@@ -601,20 +758,37 @@ async function apiDistribuidorLogin(request, env) {
     return json({ error: "Body invalido" }, 400);
   }
   if (!body.usuario || !body.password) return json({ error: "Faltan usuario y contrasena" }, 400);
-  const dist = await env.DB.prepare(`SELECT * FROM distribuidores WHERE usuario = ?`).bind(body.usuario).first();
-  if (!dist) return json({ error: "Usuario o contrasena incorrectos" }, 401);
-  const hash = await sha256Hex(body.password);
-  if (hash !== dist.password_hash) return json({ error: "Usuario o contrasena incorrectos" }, 401);
-  const token = `${dist.id}:${hash}`;
-  const headers = new Headers({ "Content-Type": "application/json" });
-  headers.append("Set-Cookie", `distribuidor_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
-  return new Response(JSON.stringify({ ok: true, nombre: dist.nombre }), { status: 200, headers });
+  const usuario = String(body.usuario).trim();
+  const claveUsuario = `dist:u:${usuario.toLowerCase()}`;
+  const claveIp = `dist:ip:${ipDe(request)}`;
+  if ((await superoLimite(env, claveUsuario, 10, 15)) || (await superoLimite(env, claveIp, 30, 15))) {
+    return json({ error: "Demasiados intentos fallidos. Esperá 15 minutos y probá de nuevo." }, 429);
+  }
+  const dist = await env.DB.prepare(`SELECT * FROM distribuidores WHERE usuario = ?`).bind(usuario).first();
+  if (!dist || !(await verificarPasswordComercio(body.password, dist.password_hash))) {
+    await registrarIntentoFallido(env, claveUsuario);
+    await registrarIntentoFallido(env, claveIp);
+    return json({ error: "Usuario o contrasena incorrectos" }, 401);
+  }
+  if (dist.activo === 0) return json({ error: "Tu acceso está desactivado. Escribile a Tapy." }, 403);
+  if (!String(dist.password_hash).startsWith("s1$")) {
+    const nuevoHash = await hashPasswordComercio(body.password);
+    await env.DB.prepare(`UPDATE distribuidores SET password_hash = ? WHERE id = ?`).bind(nuevoHash, dist.id).run();
+    dist.password_hash = nuevoHash;
+  }
+  return respuestaConCookie({ ok: true, nombre: dist.nombre },
+    `distribuidor_auth=${encodeURIComponent(await tokenDistribuidor(env, dist))}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
 }
 __name(apiDistribuidorLogin, "apiDistribuidorLogin");
 
 async function apiDistribuidoresList(env) {
   try {
-    const { results } = await env.DB.prepare(`SELECT id, nombre, usuario, created_at FROM distribuidores ORDER BY nombre`).all();
+    let results;
+    try {
+      ({ results } = await env.DB.prepare(`SELECT id, nombre, usuario, created_at, activo FROM distribuidores ORDER BY nombre`).all());
+    } catch (e) {
+      ({ results } = await env.DB.prepare(`SELECT id, nombre, usuario, created_at FROM distribuidores ORDER BY nombre`).all());
+    }
     return json(results);
   } catch (err) {
     return json({ error: err.message }, 500);
@@ -628,9 +802,11 @@ async function apiDistribuidoresCreate(request, env) {
     if (!body.nombre || !body.usuario || !body.password) {
       return json({ error: "Faltan campos obligatorios: nombre, usuario, password" }, 400);
     }
-    const existing = await env.DB.prepare(`SELECT id FROM distribuidores WHERE usuario = ?`).bind(body.usuario).first();
+    if (String(body.password).length < 6) return json({ error: "La contraseña tiene que tener al menos 6 caracteres" }, 400);
+    const existing = await env.DB.prepare(`SELECT id FROM distribuidores WHERE usuario = ?`).bind(String(body.usuario).trim()).first();
     if (existing) return json({ error: "Ese usuario ya existe, elegi otro" }, 409);
-    const hash = await sha256Hex(body.password);
+    body.usuario = String(body.usuario).trim();
+    const hash = await hashPasswordComercio(String(body.password));
     const result = await env.DB.prepare(
       `INSERT INTO distribuidores (nombre, usuario, password_hash) VALUES (?,?,?)`
     ).bind(body.nombre, body.usuario, hash).run();
@@ -640,6 +816,48 @@ async function apiDistribuidoresCreate(request, env) {
   }
 }
 __name(apiDistribuidoresCreate, "apiDistribuidoresCreate");
+
+// El dueño puede cambiarle la contraseña a un mayorista o darlo de baja (y volver a darlo de alta).
+async function apiDistribuidorPatch(id, request, env) {
+  try {
+    const body = await request.json();
+    const dist = await env.DB.prepare(`SELECT id FROM distribuidores WHERE id = ?`).bind(id).first();
+    if (!dist) return json({ error: "Mayorista no encontrado" }, 404);
+    if (body.password !== undefined && body.password !== "") {
+      if (String(body.password).length < 6) return json({ error: "La contraseña tiene que tener al menos 6 caracteres" }, 400);
+      await env.DB.prepare(`UPDATE distribuidores SET password_hash = ? WHERE id = ?`).bind(await hashPasswordComercio(String(body.password)), id).run();
+    }
+    if (body.activo !== undefined) {
+      try {
+        await env.DB.prepare(`UPDATE distribuidores SET activo = ? WHERE id = ?`).bind(body.activo ? 1 : 0, id).run();
+      } catch (e) {
+        return json({ error: "Para dar de baja mayoristas, primero corré migracion_seguridad.sql" }, 400);
+      }
+    }
+    return json({ ok: true });
+  } catch (err) {
+    return json({ error: err.message }, 500);
+  }
+}
+__name(apiDistribuidorPatch, "apiDistribuidorPatch");
+
+// Una empresa es "del mayorista" si la cargo el (clients.distribuidor_id). Si la columna todavia no
+// existe (migracion de seguridad sin correr), se mantiene el comportamiento anterior.
+async function empresaEsDelMayorista(env, clientId, distId, chipId) {
+  if (chipId) {
+    const chip = await env.DB.prepare(`SELECT client_id FROM chips WHERE id = ?`).bind(chipId).first();
+    if (chip && Number(chip.client_id) === Number(clientId)) return true; // editar sin cambiar de empresa
+  }
+  let row;
+  try {
+    row = await env.DB.prepare(`SELECT id, distribuidor_id FROM clients WHERE id = ?`).bind(clientId).first();
+  } catch (e) {
+    return true;
+  }
+  if (!row) return false;
+  return Number(row.distribuidor_id) === Number(distId);
+}
+__name(empresaEsDelMayorista, "empresaEsDelMayorista");
 
 async function apiChipsTransferir(request, env) {
   try {
@@ -655,6 +873,17 @@ async function apiChipsTransferir(request, env) {
       env.DB.prepare(`UPDATE chips SET distribuidor_id = ? WHERE id = ?`).bind(distribuidorId, id)
     );
     await env.DB.batch(statements);
+    // Si los chips ya tenian empresa asignada, esa empresa pasa a la cartera del mayorista
+    // (asi puede seguir editandolos sin que se muevan a otra empresa).
+    if (distribuidorId) {
+      try {
+        const marcas = chipIds.map(() => "?").join(",");
+        await env.DB.prepare(
+          `UPDATE clients SET distribuidor_id = ? WHERE distribuidor_id IS NULL AND name != 'STOCK - Sin Asignar'
+             AND id IN (SELECT client_id FROM chips WHERE id IN (${marcas}))`
+        ).bind(distribuidorId, ...chipIds).run();
+      } catch (e) {} // migracion de seguridad todavia sin correr
+    }
     return json({ ok: true, total: chipIds.length });
   } catch (err) {
     return json({ error: err.message }, 500);
@@ -731,6 +960,11 @@ async function handleDistribuidorApi(request, env, path, dist) {
     const chipId = chipAsignarMatch[1];
     const owns = await chipBelongsToDistribuidor(env, chipId, dist.id);
     if (!owns) return json({ error: "Ese chip no pertenece a tu inventario" }, 403);
+    let cuerpo;
+    try { cuerpo = await request.clone().json(); } catch (e) { return json({ error: "Body invalido" }, 400); }
+    if (!(await empresaEsDelMayorista(env, cuerpo.client_id, dist.id, chipId))) {
+      return json({ error: "Esa empresa no está en tu cartera" }, 403);
+    }
     return apiChipAsignar(chipId, request, env);
   }
 
@@ -743,15 +977,47 @@ async function handleDistribuidorApi(request, env, path, dist) {
   }
 
   if (path === "/api/distribuidor/clients" && method === "GET") {
-    const { results } = await env.DB.prepare(
-      `SELECT DISTINCT clients.* FROM clients
-       JOIN chips ON chips.client_id = clients.id
-       WHERE chips.distribuidor_id = ?`
-    ).bind(dist.id).all();
+    // Solo datos de contacto de SUS empresas (nunca precios, notas ni empresas de Tapy).
+    let results;
+    try {
+      ({ results } = await env.DB.prepare(
+        `SELECT id, name, business_type, contact_name, whatsapp FROM clients WHERE distribuidor_id = ?
+         UNION
+         SELECT c.id, c.name, c.business_type, c.contact_name, c.whatsapp FROM clients c
+           JOIN chips ch ON ch.client_id = c.id
+          WHERE ch.distribuidor_id = ? AND c.name != 'STOCK - Sin Asignar'
+         ORDER BY name`
+      ).bind(dist.id, dist.id).all());
+    } catch (e) {
+      ({ results } = await env.DB.prepare(
+        `SELECT DISTINCT clients.id, clients.name, clients.business_type, clients.contact_name, clients.whatsapp FROM clients
+         JOIN chips ON chips.client_id = clients.id
+         WHERE chips.distribuidor_id = ?`
+      ).bind(dist.id).all());
+    }
     return json(results);
   }
   if (path === "/api/distribuidor/clients" && method === "POST") {
-    return apiClientsCreate(request, env);
+    let body;
+    try { body = await request.json(); } catch (e) { return json({ error: "Body invalido" }, 400); }
+    const limpio = (v, max) => String(v == null ? "" : v).trim().slice(0, max) || null;
+    const name = limpio(body.name, 120);
+    if (!name) return json({ error: "Falta el nombre de la empresa" }, 400);
+    if (name.trim().toLowerCase() === "stock - sin asignar") return json({ error: "Ese nombre está reservado" }, 400);
+    const valores = [name, limpio(body.business_type, 80), limpio(body.contact_name, 120), limpio(body.whatsapp, 30), new Date().toISOString().slice(0, 10)];
+    let result;
+    try {
+      result = await env.DB.prepare(
+        `INSERT INTO clients (name, business_type, contact_name, whatsapp, signup_date, plan, billing_freq, status, distribuidor_id)
+         VALUES (?,?,?,?,?, 'mayorista', 'mensual', 'activo', ?)`
+      ).bind(...valores, dist.id).run();
+    } catch (e) {
+      result = await env.DB.prepare(
+        `INSERT INTO clients (name, business_type, contact_name, whatsapp, signup_date, plan, billing_freq, status)
+         VALUES (?,?,?,?,?, 'mayorista', 'mensual', 'activo')`
+      ).bind(...valores).run();
+    }
+    return json({ id: result.meta.last_row_id });
   }
 
   return json({ error: "Ruta no encontrada" }, 404);
@@ -760,35 +1026,211 @@ __name(handleDistribuidorApi, "handleDistribuidorApi");
 
 
 // ======================================================================
-// FIDELIZACION — programa de puntos/niveles por comercio
+// FIDELIZACION — programa de puntos/niveles por comercio (v2)
 // ======================================================================
 
 var GRACIA_DIAS = 3;
 var TAP_RATE_LIMIT_HOURS = 4; // valor de respaldo si el comercio todavia no tiene horas_entre_sumas cargado
+var MIN_HORAS_ENTRE_SUMAS = 0.25; // piso anti-abuso: 15 minutos entre moneda y moneda
+var MAX_HORAS_ENTRE_SUMAS = 168; // una semana
+var TOPE_DIARIO_DEFAULT = 1; // comercios nuevos: 1 moneda por dia (el comercio lo puede subir, ej: un bar)
+var AVISO_VENCIMIENTO_DIAS = 7; // cuantos dias antes de vencer aparece en "por vencer"
+var TZ_PY = "-3 hours"; // Paraguay, para que "este mes" sea el mes de Paraguay y no el de Londres
+var LIMITE_FALLOS_POR_NUMERO = 5; // intentos con nombre equivocado sobre un mismo numero, cada 30 min
+var LIMITE_FALLOS_POR_IP = 30; // amplio: en Paraguay muchos clientes comparten IP (datos moviles, wifi del local)
+var LIMITE_LOGIN_FALLIDOS = 10; // por IP cada 15 minutos
+
+function fechaDb(d) {
+  return d.toISOString().replace("T", " ").slice(0, 19);
+}
+__name(fechaDb, "fechaDb");
+
+function ipDe(request) {
+  return request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "local";
+}
+__name(ipDe, "ipDe");
+
+// Limite de intentos fallidos. Si la tabla todavia no existe (migracion v3 sin correr), no bloquea nada.
+async function superoLimite(env, clave, maximo, minutos) {
+  try {
+    const desde = fechaDb(new Date(Date.now() - minutos * 60000));
+    const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM fidelizacion_intentos WHERE clave = ? AND ts > ?`).bind(clave, desde).first();
+    return !!(row && row.n >= maximo);
+  } catch (e) {
+    return false;
+  }
+}
+__name(superoLimite, "superoLimite");
+
+async function registrarIntentoFallido(env, clave) {
+  try {
+    await env.DB.prepare(`INSERT INTO fidelizacion_intentos (clave) VALUES (?)`).bind(clave).run();
+    if (Math.random() < 0.05) {
+      await env.DB.prepare(`DELETE FROM fidelizacion_intentos WHERE ts < ?`).bind(fechaDb(new Date(Date.now() - 86400000))).run();
+    }
+  } catch (e) {}
+}
+__name(registrarIntentoFallido, "registrarIntentoFallido");
+
+var MENSAJE_DEMASIADOS_INTENTOS = { error: "demasiados_intentos", mensaje: "Demasiados intentos seguidos. Esperá unos minutos y probá de nuevo." };
+
+// "María José" y "maria" coinciden: se compara el primer nombre, sin tildes ni mayusculas.
+function primerNombre(nombre) {
+  return String(nombre || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().split(/\s+/)[0] || "";
+}
+__name(primerNombre, "primerNombre");
+
+function nombreCoincide(registrado, escrito) {
+  const a = primerNombre(registrado);
+  const b = primerNombre(escrito);
+  return !!a && a === b;
+}
+__name(nombreCoincide, "nombreCoincide");
+
+function respuestaNombreNoCoincide() {
+  return json({
+    error: "nombre_no_coincide",
+    mensaje: "Ese número ya está en el club con otro nombre. Escribí el nombre con el que te sumaste."
+  }, 409);
+}
+
+// Frena a quien prueba numeros o nombres: por numero (evita adivinar el nombre de una persona)
+// y por IP con un margen amplio (evita barridos de numeros sin bloquear a clientes reales).
+function clavesLimite(request, comercioId, whatsapp) {
+  return { num: `num:${comercioId}:${whatsapp}`, ip: `ip:${ipDe(request)}` };
+}
+async function bloqueadoPorIntentos(env, claves) {
+  return (await superoLimite(env, claves.num, LIMITE_FALLOS_POR_NUMERO, 30))
+      || (await superoLimite(env, claves.ip, LIMITE_FALLOS_POR_IP, 30));
+}
+async function registrarFallo(env, claves) {
+  await registrarIntentoFallido(env, claves.num);
+  await registrarIntentoFallido(env, claves.ip);
+}
+__name(respuestaNombreNoCoincide, "respuestaNombreNoCoincide");
+
+function whatsappValido(w) {
+  // Celular de Paraguay: 9 digitos empezando con 9 (0981 123 456 -> 981123456)
+  return /^9\d{8}$/.test(w);
+}
+__name(whatsappValido, "whatsappValido");
+
+// Todas las sesiones y links se firman con una clave secreta propia, larga y al azar, que el sistema
+// genera solo la primera vez y guarda en la base. Ya NO se usa la contraseña del panel para firmar:
+// asi nadie puede deducir tu contraseña a partir de una sesion.
+var _secretoSesiones = null;
+async function secretoSesiones(env) {
+  if (_secretoSesiones) return _secretoSesiones;
+  let row = await env.DB.prepare(`SELECT value FROM settings WHERE key = 'secreto_sesiones'`).first();
+  if (!row || !row.value) {
+    await env.DB.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES ('secreto_sesiones', ?)`).bind(randomHex(32)).run();
+    row = await env.DB.prepare(`SELECT value FROM settings WHERE key = 'secreto_sesiones'`).first();
+  }
+  _secretoSesiones = row.value;
+  return _secretoSesiones;
+}
+__name(secretoSesiones, "secretoSesiones");
+
+var _clavesHmac = new Map();
+async function hmacHex(secreto, texto) {
+  let key = _clavesHmac.get(secreto);
+  if (!key) {
+    key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secreto), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    _clavesHmac.set(secreto, key);
+  }
+  const firma = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(texto));
+  return Array.from(new Uint8Array(firma)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+__name(hmacHex, "hmacHex");
 
 async function signWithSecret(env, text) {
-  return sha256Hex(`${text}:${env.PANEL_PASSWORD || ""}`);
+  return hmacHex(await secretoSesiones(env), text);
 }
 __name(signWithSecret, "signWithSecret");
 
-// ---------- login y cookie del panel del comercio ----------
+function randomHex(bytes) {
+  const arr = new Uint8Array(bytes);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+__name(randomHex, "randomHex");
+
+// Fechas de SQLite ("2026-09-27 18:04:11", en UTC) a Date de JS.
+function parseFechaDb(s) {
+  if (!s) return null;
+  const txt = String(s);
+  const iso = txt.includes("T") ? txt : txt.replace(" ", "T");
+  const d = new Date(/[zZ]$|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso + "Z");
+  return isNaN(d.getTime()) ? null : d;
+}
+__name(parseFechaDb, "parseFechaDb");
+
+function ahoraDb() {
+  return new Date().toISOString().replace("T", " ").slice(0, 19);
+}
+__name(ahoraDb, "ahoraDb");
+
+function horasEsperaComercio(comercio) {
+  const raw = comercio.horas_entre_sumas;
+  const h = raw === null || raw === undefined || raw === "" ? TAP_RATE_LIMIT_HOURS : Number(raw);
+  if (!isFinite(h)) return TAP_RATE_LIMIT_HOURS;
+  return Math.min(MAX_HORAS_ENTRE_SUMAS, Math.max(MIN_HORAS_ENTRE_SUMAS, h));
+}
+__name(horasEsperaComercio, "horasEsperaComercio");
+
+function topeDiarioComercio(comercio) {
+  const t = parseInt(comercio.tope_diario, 10);
+  return t > 0 ? t : TOPE_DIARIO_DEFAULT;
+}
+__name(topeDiarioComercio, "topeDiarioComercio");
+
+// ---------- contraseñas y sesion del panel del comercio ----------
+
+async function hashPasswordComercio(password) {
+  const salt = randomHex(16);
+  return `s1$${salt}$${await sha256Hex(`${salt}:${password}`)}`;
+}
+__name(hashPasswordComercio, "hashPasswordComercio");
+
+async function verificarPasswordComercio(password, stored) {
+  if (!stored || !password) return false;
+  if (stored.startsWith("s1$")) {
+    const partes = stored.split("$");
+    if (partes.length !== 3) return false;
+    return igualSeguro(await sha256Hex(`${partes[1]}:${password}`), partes[2]);
+  }
+  // formato viejo (sin sal): se actualiza solo en el proximo login
+  return igualSeguro(await sha256Hex(password), stored);
+}
+__name(verificarPasswordComercio, "verificarPasswordComercio");
+
+async function tokenSesionComercio(env, comercio) {
+  return `${comercio.id}:${await signWithSecret(env, `comercio:${comercio.id}:${comercio.password_hash}`)}`;
+}
+__name(tokenSesionComercio, "tokenSesionComercio");
+
+function cookieSesionComercio(token) {
+  return `comercio_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`;
+}
+__name(cookieSesionComercio, "cookieSesionComercio");
 
 function getComercioCookie(request) {
   const cookie = request.headers.get("Cookie") || "";
   const match = cookie.match(/comercio_auth=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
+  return match ? safeDecode(match[1]) : null;
 }
 __name(getComercioCookie, "getComercioCookie");
 
 async function requireComercio(request, env) {
   const token = getComercioCookie(request);
   if (!token) return null;
-  const parts = token.split(":");
-  if (parts.length !== 2) return null;
-  const [idStr, hash] = parts;
+  const idx = token.indexOf(":");
+  if (idx < 1) return null;
+  const idStr = token.slice(0, idx);
   const comercio = await env.DB.prepare(`SELECT * FROM fidelizacion_comercios WHERE id = ?`).bind(idStr).first();
-  if (!comercio || !comercio.password_hash || comercio.password_hash !== hash) return null;
-  return comercio;
+  if (!comercio || !comercio.password_hash) return null;
+  const esperado = await tokenSesionComercio(env, comercio);
+  return igualSeguro(esperado, token) ? comercio : null;
 }
 __name(requireComercio, "requireComercio");
 
@@ -800,30 +1242,48 @@ async function apiComercioLogin(request, env) {
     return json({ error: "Body invalido" }, 400);
   }
   if (!body.usuario || !body.password) return json({ error: "Faltan usuario y contraseña" }, 400);
-  const comercio = await env.DB.prepare(`SELECT * FROM fidelizacion_comercios WHERE usuario = ?`).bind(body.usuario).first();
-  if (!comercio) return json({ error: "Usuario o contraseña incorrectos" }, 401);
-  const hash = await sha256Hex(body.password);
-  if (hash !== comercio.password_hash) return json({ error: "Usuario o contraseña incorrectos" }, 401);
-  const token = `${comercio.id}:${hash}`;
+  const claveUsuario = `login:u:${String(body.usuario).trim().toLowerCase()}`;
+  const claveIp = `login:ip:${ipDe(request)}`;
+  if ((await superoLimite(env, claveUsuario, LIMITE_LOGIN_FALLIDOS, 15)) || (await superoLimite(env, claveIp, LIMITE_LOGIN_FALLIDOS * 3, 15))) {
+    return json({ error: "Demasiados intentos fallidos. Esperá 15 minutos y probá de nuevo." }, 429);
+  }
+  const comercio = await env.DB.prepare(`SELECT * FROM fidelizacion_comercios WHERE usuario = ?`).bind(String(body.usuario).trim()).first();
+  if (!comercio || !(await verificarPasswordComercio(body.password, comercio.password_hash))) {
+    await registrarIntentoFallido(env, claveUsuario);
+    await registrarIntentoFallido(env, claveIp);
+    return json({ error: "Usuario o contraseña incorrectos" }, 401);
+  }
+  if (!String(comercio.password_hash).startsWith("s1$")) {
+    const nuevoHash = await hashPasswordComercio(body.password);
+    await env.DB.prepare(`UPDATE fidelizacion_comercios SET password_hash = ? WHERE id = ?`).bind(nuevoHash, comercio.id).run();
+    comercio.password_hash = nuevoHash;
+  }
   const headers = new Headers({ "Content-Type": "application/json" });
-  headers.append("Set-Cookie", `comercio_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
+  headers.append("Set-Cookie", cookieSesionComercio(await tokenSesionComercio(env, comercio)));
   return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
 __name(apiComercioLogin, "apiComercioLogin");
+
+function apiComercioLogout() {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  headers.append("Set-Cookie", "comercio_auth=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0");
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+}
+__name(apiComercioLogout, "apiComercioLogout");
 
 // ---------- sesion (cookie) del cliente final, anonima, firmada ----------
 
 function getFidSessionCookie(request, comercioId) {
   const cookie = request.headers.get("Cookie") || "";
-  const re = new RegExp(`fid_${comercioId}=([^;]+)`);
+  const re = new RegExp(`(?:^|;\\s*)fid_${comercioId}=([^;]+)`);
   const match = cookie.match(re);
-  return match ? decodeURIComponent(match[1]) : null;
+  return match ? safeDecode(match[1]) : null;
 }
 __name(getFidSessionCookie, "getFidSessionCookie");
 
 async function buildFidSessionCookie(env, comercioId, clienteId) {
   const hash = await signWithSecret(env, `${comercioId}:${clienteId}`);
-  return `fid_${comercioId}=${encodeURIComponent(`${clienteId}:${hash}`)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=31536000`;
+  return `fid_${comercioId}=${encodeURIComponent(`${clienteId}:${hash}`)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=31536000`;
 }
 __name(buildFidSessionCookie, "buildFidSessionCookie");
 
@@ -834,10 +1294,27 @@ async function getFidClienteIdFromCookie(request, env, comercioId) {
   if (parts.length !== 2) return null;
   const [clienteIdStr, hash] = parts;
   const expected = await signWithSecret(env, `${comercioId}:${clienteIdStr}`);
-  if (expected !== hash) return null;
+  if (!igualSeguro(expected, hash)) return null;
   return clienteIdStr;
 }
 __name(getFidClienteIdFromCookie, "getFidClienteIdFromCookie");
+
+// Link personal "Mi tarjeta" que el comercio manda por WhatsApp: abre la tarjeta del
+// cliente directo, sin pedirle nada.
+async function tokenTarjeta(env, comercioId, clienteId) {
+  const sig = await signWithSecret(env, `tarjeta:${comercioId}:${clienteId}`);
+  return `${clienteId}.${sig.slice(0, 24)}`;
+}
+__name(tokenTarjeta, "tokenTarjeta");
+
+async function clienteIdDesdeTokenTarjeta(env, comercioId, token) {
+  if (!token) return null;
+  const partes = String(token).split(".");
+  if (partes.length !== 2 || !/^\d+$/.test(partes[0])) return null;
+  const esperado = await tokenTarjeta(env, comercioId, partes[0]);
+  return igualSeguro(esperado, token) ? partes[0] : null;
+}
+__name(clienteIdDesdeTokenTarjeta, "clienteIdDesdeTokenTarjeta");
 
 // ---------- bloqueo automatico por falta de pago ----------
 
@@ -851,62 +1328,160 @@ async function checkAndUpdateComercioEstado(env, comercioId) {
      ORDER BY fecha_vencimiento DESC LIMIT 1`
   ).bind(comercioId).first();
   if (cobro) {
-    const limite = new Date(cobro.fecha_solicitud_enviada);
-    limite.setDate(limite.getDate() + GRACIA_DIAS);
-    if (new Date() > limite) {
-      await env.DB.prepare(`UPDATE fidelizacion_cobros SET estado = 'vencido_suspendido' WHERE id = ?`).bind(cobro.id).run();
-      await env.DB.prepare(`UPDATE fidelizacion_comercios SET estado = 'suspendido' WHERE id = ?`).bind(comercioId).run();
-      return "suspendido";
+    const limite = parseFechaDb(cobro.fecha_solicitud_enviada);
+    if (limite) {
+      limite.setDate(limite.getDate() + GRACIA_DIAS);
+      if (new Date() > limite) {
+        await env.DB.prepare(`UPDATE fidelizacion_cobros SET estado = 'vencido_suspendido' WHERE id = ?`).bind(cobro.id).run();
+        await env.DB.prepare(`UPDATE fidelizacion_comercios SET estado = 'suspendido' WHERE id = ?`).bind(comercioId).run();
+        return "suspendido";
+      }
     }
   }
   return "activo";
 }
 __name(checkAndUpdateComercioEstado, "checkAndUpdateComercioEstado");
 
+// ---------- vencimiento de monedas ----------
+
+// Si el cliente no vuelve en "validez_dias" dias, sus monedas vuelven a 0 (sigue en el club,
+// el comercio no pierde su contacto). Un premio ya ganado y no retirado NO vence.
+// Se aplica cada vez que alguien mira o toca algo de ese comercio: no hace falta un cron.
+// El reloj del vencimiento arranca en la ultima visita, o en la fecha en que el comercio cambio
+// (achico) el plazo, la que sea mas nueva: asi achicar el plazo nunca borra monedas de golpe.
+function inicioVencimiento(comercio, cliente) {
+  const ultima = cliente.ultimo_tap || cliente.created_at || "";
+  const desde = comercio.validez_desde || "";
+  return ultima > desde ? ultima : desde;
+}
+__name(inicioVencimiento, "inicioVencimiento");
+
+async function aplicarVencimientos(env, comercio) {
+  const dias = Number(comercio.validez_dias) || 0;
+  if (dias <= 0) return;
+  // Si la migracion v3 todavia no se corrio, la columna no existe: no vencemos nada (mejor no
+  // borrar monedas que borrarlas de golpe). En cuanto se corre la v3, empieza a funcionar solo.
+  if (comercio.validez_desde === undefined) return;
+  // Un solo corte calculado una vez: las dos sentencias ven exactamente el mismo instante.
+  const corte = fechaDb(new Date(Date.now() - dias * 86400000));
+  const desde = comercio.validez_desde || "";
+  if (desde && desde > corte) return; // el plazo se cambio hace menos de "dias": nadie puede vencer todavia
+  const condicion = `comercio_id = ? AND pendiente_canje = 0 AND monedas_actuales > 0
+      AND COALESCE(ultimo_tap, created_at) < ?`;
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO fidelizacion_taps (fidelizacion_cliente_id, delta, origen)
+       SELECT id, -monedas_actuales, 'vencimiento' FROM fidelizacion_clientes WHERE ${condicion}`
+    ).bind(comercio.id, corte),
+    env.DB.prepare(
+      `UPDATE fidelizacion_clientes SET monedas_actuales = 0, aviso_vencimiento_at = NULL WHERE ${condicion}`
+    ).bind(comercio.id, corte)
+  ]);
+}
+__name(aplicarVencimientos, "aplicarVencimientos");
+
+function diasParaVencer(comercio, cliente) {
+  const dias = Number(comercio.validez_dias) || 0;
+  if (!dias || cliente.pendiente_canje || !cliente.monedas_actuales) return null;
+  const base = parseFechaDb(inicioVencimiento(comercio, cliente));
+  if (!base) return null;
+  const vence = base.getTime() + dias * 86400000;
+  return Math.max(0, Math.ceil((vence - Date.now()) / 86400000));
+}
+__name(diasParaVencer, "diasParaVencer");
+
+// ---------- datos que ve el cliente final ----------
+
+async function premiosDeComercio(env, comercioId) {
+  const { results } = await env.DB.prepare(
+    `SELECT nivel, descripcion FROM fidelizacion_premios WHERE comercio_id = ? ORDER BY nivel`
+  ).bind(comercioId).all();
+  return results || [];
+}
+__name(premiosDeComercio, "premiosDeComercio");
+
+async function infoPublicaComercio(env, comercio) {
+  return {
+    negocio_nombre: comercio.comercio_nombre,
+    activo: comercio.estado === "activo",
+    niveles: comercio.niveles,
+    monedas_por_nivel: comercio.monedas_por_nivel,
+    validez_dias: comercio.validez_dias,
+    premios: await premiosDeComercio(env, comercio.id)
+  };
+}
+__name(infoPublicaComercio, "infoPublicaComercio");
+
+async function estadoClienteRespuesta(env, comercio, cliente) {
+  const premios = await premiosDeComercio(env, comercio.id);
+  const premioActual = premios.find((p) => Number(p.nivel) === Number(cliente.nivel_actual));
+  return {
+    ok: true,
+    nombre: cliente.nombre,
+    negocio_nombre: comercio.comercio_nombre,
+    nivel_actual: cliente.nivel_actual,
+    monedas_actuales: cliente.monedas_actuales,
+    monedas_por_nivel: comercio.monedas_por_nivel,
+    niveles: comercio.niveles,
+    pendiente_canje: !!cliente.pendiente_canje,
+    premio_nivel_actual: premioActual && premioActual.descripcion ? premioActual.descripcion : null,
+    premios,
+    vueltas_completadas: cliente.vueltas_completadas || 0,
+    es_ultimo_nivel: Number(cliente.nivel_actual) >= Number(comercio.niveles),
+    vence_en_dias: diasParaVencer(comercio, cliente),
+    validez_dias: comercio.validez_dias
+  };
+}
+__name(estadoClienteRespuesta, "estadoClienteRespuesta");
+
 // ---------- endpoints publicos (clientes finales, sin login) ----------
 
 async function handlePublicFidelizacionApi(request, env, path) {
   const method = request.method;
-  if (path === "/api/public/fidelizacion/info" && method === "GET") {
-    return apiPublicComercioInfo(request, env);
-  }
-  if (path === "/api/public/fidelizacion/inscribir" && method === "POST") {
-    return apiPublicInscribir(request, env);
-  }
-  if (path === "/api/public/fidelizacion/estado" && method === "GET") {
-    return apiPublicEstado(request, env);
-  }
-  if (path === "/api/public/fidelizacion/sumar" && method === "POST") {
-    return apiPublicSumar(request, env);
-  }
-  if (path === "/api/public/fidelizacion/recuperar-sesion" && method === "POST") {
-    return apiPublicRecuperarSesion(request, env);
-  }
+  if (path === "/api/public/fidelizacion/info" && method === "GET") return apiPublicComercioInfo(request, env);
+  if (path === "/api/public/fidelizacion/inscribir" && method === "POST") return apiPublicInscribir(request, env);
+  if (path === "/api/public/fidelizacion/estado" && method === "GET") return apiPublicEstado(request, env);
+  if (path === "/api/public/fidelizacion/sumar" && method === "POST") return apiPublicSumar(request, env);
+  if (path === "/api/public/fidelizacion/recuperar-sesion" && method === "POST") return apiPublicRecuperarSesion(request, env);
+  if (path === "/api/public/fidelizacion/ver" && method === "POST") return apiPublicVer(request, env);
   return json({ error: "Ruta no encontrada" }, 404);
 }
 __name(handlePublicFidelizacionApi, "handlePublicFidelizacionApi");
 
+var TIPOS_FID = ["fidelizacion_inscripcion", "fidelizacion_puntos"];
+
 async function findComercioByChipSlugYTipo(env, slug, tipo) {
+  const tipos = Array.isArray(tipo) ? tipo : [tipo];
+  const marcas = tipos.map(() => "?").join(",");
   return env.DB.prepare(
-    `SELECT fidelizacion_comercios.*, clients.name AS comercio_nombre, chips.id AS chip_id
+    `SELECT fidelizacion_comercios.*, clients.name AS comercio_nombre, chips.id AS chip_id, chips.tipo AS chip_tipo
      FROM chips JOIN fidelizacion_comercios
        ON (chips.tipo = 'fidelizacion_inscripcion' AND fidelizacion_comercios.nfc_inscripcion_chip_id = chips.id)
        OR (chips.tipo = 'fidelizacion_puntos' AND fidelizacion_comercios.nfc_puntos_chip_id = chips.id)
      JOIN clients ON clients.id = fidelizacion_comercios.client_id
-     WHERE chips.slug = ? AND chips.tipo = ?`
-  ).bind(slug, tipo).first();
+     WHERE chips.slug = ? AND chips.tipo IN (${marcas})`
+  ).bind(slug, ...tipos).first();
 }
 __name(findComercioByChipSlugYTipo, "findComercioByChipSlugYTipo");
+
+var MENSAJE_SUSPENDIDO = { error: "suspendido", mensaje: "Este comercio no tiene el club de fidelidad activo en este momento." };
+
+function respuestaConCookie(data, cookie, status = 200) {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (cookie) headers.append("Set-Cookie", cookie);
+  return new Response(JSON.stringify(data), { status, headers });
+}
+__name(respuestaConCookie, "respuestaConCookie");
 
 async function apiPublicComercioInfo(request, env) {
   try {
     const url = new URL(request.url);
     const slug = url.searchParams.get("slug");
-    const tipoParam = url.searchParams.get("tipo") === "puntos" ? "fidelizacion_puntos" : "fidelizacion_inscripcion";
     if (!slug) return json({ error: "Falta el parametro slug" }, 400);
-    const comercio = await findComercioByChipSlugYTipo(env, slug, tipoParam);
+    const comercio = await findComercioByChipSlugYTipo(env, slug, TIPOS_FID);
     if (!comercio) return json({ error: "Tarjeta no reconocida" }, 404);
-    return json({ nombre: comercio.comercio_nombre, activo: comercio.estado === "activo" });
+    const info = await infoPublicaComercio(env, comercio);
+    return json({ nombre: comercio.comercio_nombre, ...info });
   } catch (err) {
     return json({ error: err.message }, 500);
   }
@@ -923,134 +1498,173 @@ function normalizarWhatsapp(raw) {
 }
 __name(normalizarWhatsapp, "normalizarWhatsapp");
 
+// Suma 1 moneda. La actualizacion es condicional y atomica: si llegan 2 toques al mismo tiempo
+// (doble apertura del NFC, doble clic), solo uno gana. "corteEspera" (opcional) exige que la
+// ultima moneda sea anterior a ese instante; sin corte (bienvenida/manual) no hay espera.
+async function acreditarMoneda(env, comercio, cliente, origen, corteEspera) {
+  const tope = Number(comercio.monedas_por_nivel) || 1;
+  const cond = corteEspera ? ` AND (ultimo_tap IS NULL OR ultimo_tap <= ?)` : "";
+  const binds = [tope, tope, cliente.id, Number(cliente.monedas_actuales) || 0];
+  if (corteEspera) binds.push(corteEspera);
+  const r = await env.DB.prepare(
+    `UPDATE fidelizacion_clientes
+       SET monedas_actuales = MIN(monedas_actuales + 1, ?),
+           pendiente_canje = CASE WHEN monedas_actuales + 1 >= ? THEN 1 ELSE 0 END,
+           ultimo_tap = datetime('now'), aviso_vencimiento_at = NULL
+     WHERE id = ? AND pendiente_canje = 0 AND monedas_actuales = ?${cond}`
+  ).bind(...binds).run();
+  if (!r.meta || !r.meta.changes) return { acreditada: false, nivelCompleto: false };
+  // Solo quien gano la actualizacion escribe su renglon de historial.
+  await env.DB.prepare(
+    `INSERT INTO fidelizacion_taps (fidelizacion_cliente_id, delta, origen) VALUES (?, 1, ?)`
+  ).bind(cliente.id, origen).run();
+  const nuevas = Math.min((Number(cliente.monedas_actuales) || 0) + 1, tope);
+  cliente.monedas_actuales = nuevas;
+  cliente.pendiente_canje = nuevas >= tope ? 1 : 0;
+  cliente.ultimo_tap = ahoraDb();
+  cliente.aviso_vencimiento_at = null;
+  return { acreditada: true, nivelCompleto: !!cliente.pendiente_canje };
+}
+__name(acreditarMoneda, "acreditarMoneda");
+
+async function intentarSumarMoneda(env, comercio, cliente) {
+  if (cliente.pendiente_canje) {
+    return { ...(await estadoClienteRespuesta(env, comercio, cliente)), nivel_completo: true };
+  }
+  const horasEspera = horasEsperaComercio(comercio);
+  const respuestaEspera = async (c) => {
+    const base = parseFechaDb(c.ultimo_tap);
+    const limite = base ? base.getTime() + horasEspera * 3600000 : Date.now() + 60000;
+    return {
+      ...(await estadoClienteRespuesta(env, comercio, c)),
+      ya_sumaste: true,
+      minutos_para_sumar: Math.max(1, Math.ceil((limite - Date.now()) / 60000))
+    };
+  };
+  const base = parseFechaDb(cliente.ultimo_tap);
+  if (base && Date.now() < base.getTime() + horasEspera * 3600000) return respuestaEspera(cliente);
+
+  // Tope por dia calendario de Paraguay (se reinicia a medianoche, no 24 h despues)
+  const tope = topeDiarioComercio(comercio);
+  const hoy = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM fidelizacion_taps
+     WHERE fidelizacion_cliente_id = ? AND delta > 0 AND origen IN ('tap', 'bienvenida')
+       AND date(ts, '${TZ_PY}') = date('now', '${TZ_PY}')`
+  ).bind(cliente.id).first();
+  if (hoy && hoy.n >= tope) {
+    return { ...(await estadoClienteRespuesta(env, comercio, cliente)), tope_alcanzado: true, tope_diario: tope };
+  }
+  const corte = fechaDb(new Date(Date.now() - horasEspera * 3600000));
+  const r = await acreditarMoneda(env, comercio, cliente, "tap", corte);
+  if (!r.acreditada) {
+    // Otro toque simultaneo gano la carrera: mostramos el estado real, sin sumar dos veces.
+    const fresco = await env.DB.prepare(`SELECT * FROM fidelizacion_clientes WHERE id = ?`).bind(cliente.id).first();
+    if (fresco && fresco.pendiente_canje) return { ...(await estadoClienteRespuesta(env, comercio, fresco)), nivel_completo: true };
+    return respuestaEspera(fresco || cliente);
+  }
+  return { ...(await estadoClienteRespuesta(env, comercio, cliente)), sumo_moneda: true, nivel_completo: r.nivelCompleto };
+}
+__name(intentarSumarMoneda, "intentarSumarMoneda");
+
+// Inscripcion: sirve desde cualquiera de las 2 tarjetas (inscripcion o puntos).
+// Al inscribirse por primera vez, el cliente se lleva su moneda de bienvenida.
 async function apiPublicInscribir(request, env) {
   try {
     const body = await request.json();
-    const { slug, nombre, acepta } = body;
+    const slug = body.slug;
+    const nombre = String(body.nombre || "").trim().replace(/\s+/g, " ").slice(0, 60);
     const whatsapp = normalizarWhatsapp(body.whatsapp);
-    if (!slug || !nombre || !whatsapp || !acepta) {
+    if (!slug || !nombre || !whatsapp || !body.acepta) {
       return json({ error: "Faltan datos: nombre, whatsapp y la aceptación son obligatorios" }, 400);
     }
-    const comercio = await findComercioByChipSlugYTipo(env, slug, "fidelizacion_inscripcion");
+    const comercio = await findComercioByChipSlugYTipo(env, slug, TIPOS_FID);
     if (!comercio) return json({ error: "Tarjeta no reconocida" }, 404);
 
     const estado = await checkAndUpdateComercioEstado(env, comercio.id);
-    if (estado !== "activo") {
-      return json({ error: "suspendido", mensaje: "Este comercio no tiene el club de fidelidad activo en este momento." }, 403);
-    }
+    if (estado !== "activo") return json(MENSAJE_SUSPENDIDO, 403);
 
-    let cliente = await env.DB.prepare(
+    const claves = clavesLimite(request, comercio.id, whatsapp);
+    await aplicarVencimientos(env, comercio);
+
+    const buscar = () => env.DB.prepare(
       `SELECT * FROM fidelizacion_clientes WHERE comercio_id = ? AND whatsapp = ?`
     ).bind(comercio.id, whatsapp).first();
+    let cliente = await buscar();
 
+    let esNuevo = false;
+    let nivelCompleto = false;
     if (!cliente) {
-      const result = await env.DB.prepare(
-        `INSERT INTO fidelizacion_clientes (comercio_id, nombre, whatsapp) VALUES (?, ?, ?)`
-      ).bind(comercio.id, nombre, whatsapp).run();
-      cliente = await env.DB.prepare(`SELECT * FROM fidelizacion_clientes WHERE id = ?`).bind(result.meta.last_row_id).first();
-    } else if (cliente.nombre !== nombre) {
-      await env.DB.prepare(`UPDATE fidelizacion_clientes SET nombre = ? WHERE id = ?`).bind(nombre, cliente.id).run();
-      cliente.nombre = nombre;
+      // El formato estricto se exige solo a los nuevos: un cliente viejo con otro formato puede seguir entrando.
+      if (!whatsappValido(whatsapp)) {
+        return json({ error: "whatsapp_invalido", mensaje: "Revisá tu número: tiene que ser un celular de Paraguay, por ejemplo 0981 234 567." }, 400);
+      }
+      try {
+        const result = await env.DB.prepare(
+          `INSERT INTO fidelizacion_clientes (comercio_id, nombre, whatsapp) VALUES (?, ?, ?)`
+        ).bind(comercio.id, nombre, whatsapp).run();
+        cliente = await env.DB.prepare(`SELECT * FROM fidelizacion_clientes WHERE id = ?`).bind(result.meta.last_row_id).first();
+        esNuevo = true;
+        nivelCompleto = (await acreditarMoneda(env, comercio, cliente, "bienvenida")).nivelCompleto;
+      } catch (e) {
+        // Doble envio del formulario: la otra solicitud ya lo creo. Seguimos con ese cliente.
+        cliente = await buscar();
+        if (!cliente) throw e;
+      }
+    }
+    // Un numero ya registrado solo entra si el nombre coincide (no se renombra ni se "roba" la cuenta).
+    if (!esNuevo) {
+      if (await bloqueadoPorIntentos(env, claves)) return json(MENSAJE_DEMASIADOS_INTENTOS, 429);
+      if (!nombreCoincide(cliente.nombre, nombre)) {
+        await registrarFallo(env, claves);
+        return respuestaNombreNoCoincide();
+      }
     }
 
-    const cookieValue = await buildFidSessionCookie(env, comercio.id, cliente.id);
-    const headers = new Headers({ "Content-Type": "application/json" });
-    headers.append("Set-Cookie", cookieValue);
-    return new Response(JSON.stringify({
-      ok: true,
-      nombre: cliente.nombre,
-      negocio_nombre: comercio.comercio_nombre,
-      nivel_actual: cliente.nivel_actual,
-      monedas_actuales: cliente.monedas_actuales,
-      monedas_por_nivel: comercio.monedas_por_nivel
-    }), { status: 200, headers });
+    const data = {
+      ...(await estadoClienteRespuesta(env, comercio, cliente)),
+      bienvenida: esNuevo,
+      ya_inscripto: !esNuevo,
+      sumo_moneda: esNuevo,
+      nivel_completo: nivelCompleto
+    };
+    return respuestaConCookie(data, await buildFidSessionCookie(env, comercio.id, cliente.id));
   } catch (err) {
     return json({ error: err.message }, 500);
   }
 }
 __name(apiPublicInscribir, "apiPublicInscribir");
 
-async function estadoClienteRespuesta(env, comercio, cliente) {
-  const premio = await env.DB.prepare(
-    `SELECT descripcion FROM fidelizacion_premios WHERE comercio_id = ? AND nivel = ?`
-  ).bind(comercio.id, cliente.nivel_actual).first();
-  return {
-    ok: true,
-    nombre: cliente.nombre,
-    negocio_nombre: comercio.comercio_nombre,
-    nivel_actual: cliente.nivel_actual,
-    monedas_actuales: cliente.monedas_actuales,
-    monedas_por_nivel: comercio.monedas_por_nivel,
-    niveles: comercio.niveles,
-    pendiente_canje: !!cliente.pendiente_canje,
-    premio_nivel_actual: premio ? premio.descripcion : null
-  };
-}
-__name(estadoClienteRespuesta, "estadoClienteRespuesta");
-
+// "Mi tarjeta": muestra el estado SIN sumar moneda. Acepta el link personal (?t=) o la cookie.
 async function apiPublicEstado(request, env) {
   try {
     const url = new URL(request.url);
     const slug = url.searchParams.get("slug");
     if (!slug) return json({ error: "Falta el parametro slug" }, 400);
-    const comercio = await findComercioByChipSlugYTipo(env, slug, "fidelizacion_puntos");
+    const comercio = await findComercioByChipSlugYTipo(env, slug, TIPOS_FID);
     if (!comercio) return json({ error: "Tarjeta no reconocida" }, 404);
 
     const estado = await checkAndUpdateComercioEstado(env, comercio.id);
-    if (estado !== "activo") {
-      return json({ error: "suspendido", mensaje: "Este comercio no tiene el club de fidelidad activo en este momento." }, 403);
+    if (estado !== "activo") return json(MENSAJE_SUSPENDIDO, 403);
+
+    let cookieNueva = null;
+    let clienteId = await clienteIdDesdeTokenTarjeta(env, comercio.id, url.searchParams.get("t"));
+    if (clienteId) {
+      cookieNueva = await buildFidSessionCookie(env, comercio.id, clienteId);
+    } else {
+      clienteId = await getFidClienteIdFromCookie(request, env, comercio.id);
     }
+    if (!clienteId) return json({ needsWhatsapp: true, ...(await infoPublicaComercio(env, comercio)) });
 
-    const clienteId = await getFidClienteIdFromCookie(request, env, comercio.id);
-    if (!clienteId) return json({ needsWhatsapp: true, negocio_nombre: comercio.comercio_nombre });
-
+    await aplicarVencimientos(env, comercio);
     const cliente = await env.DB.prepare(`SELECT * FROM fidelizacion_clientes WHERE id = ? AND comercio_id = ?`).bind(clienteId, comercio.id).first();
-    if (!cliente) return json({ needsWhatsapp: true, negocio_nombre: comercio.comercio_nombre });
+    if (!cliente) return json({ needsWhatsapp: true, ...(await infoPublicaComercio(env, comercio)) });
 
-    return json(await estadoClienteRespuesta(env, comercio, cliente));
+    return respuestaConCookie(await estadoClienteRespuesta(env, comercio, cliente), cookieNueva);
   } catch (err) {
     return json({ error: err.message }, 500);
   }
 }
 __name(apiPublicEstado, "apiPublicEstado");
-
-async function intentarSumarMoneda(env, comercio, cliente) {
-  if (cliente.pendiente_canje) {
-    return { ...(await estadoClienteRespuesta(env, comercio, cliente)), nivel_completo: true };
-  }
-  // Cada comercio elige su propio lapso entre sumas (ej: un bar puede poner 0 para instantaneo,
-  // un restaurante puede poner 24 para una vez por dia). horas_entre_sumas admite decimales
-  // (0.5 = 30 minutos). Si el comercio todavia no tiene el campo cargado, usamos el valor de respaldo.
-  const horasEspera = (comercio.horas_entre_sumas === null || comercio.horas_entre_sumas === undefined)
-    ? TAP_RATE_LIMIT_HOURS
-    : Number(comercio.horas_entre_sumas);
-  if (horasEspera > 0) {
-    const ultimaTap = await env.DB.prepare(
-      `SELECT ts FROM fidelizacion_taps WHERE fidelizacion_cliente_id = ? ORDER BY ts DESC LIMIT 1`
-    ).bind(cliente.id).first();
-    if (ultimaTap) {
-      const limite = new Date(new Date(ultimaTap.ts).getTime() + horasEspera * 3600000);
-      if (new Date() < limite) {
-        return { ...(await estadoClienteRespuesta(env, comercio, cliente)), ya_sumaste: true };
-      }
-    }
-  }
-  let nuevasMonedas = cliente.monedas_actuales + 1;
-  let nuevoPendiente = 0;
-  if (nuevasMonedas >= comercio.monedas_por_nivel) {
-    nuevasMonedas = comercio.monedas_por_nivel;
-    nuevoPendiente = 1;
-  }
-  await env.DB.prepare(
-    `UPDATE fidelizacion_clientes SET monedas_actuales = ?, pendiente_canje = ?, ultimo_tap = datetime('now') WHERE id = ?`
-  ).bind(nuevasMonedas, nuevoPendiente, cliente.id).run();
-  await env.DB.prepare(`INSERT INTO fidelizacion_taps (fidelizacion_cliente_id) VALUES (?)`).bind(cliente.id).run();
-
-  cliente.monedas_actuales = nuevasMonedas;
-  cliente.pendiente_canje = nuevoPendiente;
-  return { ...(await estadoClienteRespuesta(env, comercio, cliente)), sumo_moneda: true, nivel_completo: !!nuevoPendiente };
-}
-__name(intentarSumarMoneda, "intentarSumarMoneda");
 
 async function apiPublicSumar(request, env) {
   try {
@@ -1061,14 +1675,13 @@ async function apiPublicSumar(request, env) {
     if (!comercio) return json({ error: "Tarjeta no reconocida" }, 404);
 
     const estado = await checkAndUpdateComercioEstado(env, comercio.id);
-    if (estado !== "activo") {
-      return json({ error: "suspendido", mensaje: "Este comercio no tiene el club de fidelidad activo en este momento." }, 403);
-    }
+    if (estado !== "activo") return json(MENSAJE_SUSPENDIDO, 403);
 
     const clienteId = await getFidClienteIdFromCookie(request, env, comercio.id);
-    if (!clienteId) return json({ needsWhatsapp: true, negocio_nombre: comercio.comercio_nombre });
+    if (!clienteId) return json({ needsWhatsapp: true, ...(await infoPublicaComercio(env, comercio)) });
+    await aplicarVencimientos(env, comercio);
     const cliente = await env.DB.prepare(`SELECT * FROM fidelizacion_clientes WHERE id = ? AND comercio_id = ?`).bind(clienteId, comercio.id).first();
-    if (!cliente) return json({ needsWhatsapp: true, negocio_nombre: comercio.comercio_nombre });
+    if (!cliente) return json({ needsWhatsapp: true, ...(await infoPublicaComercio(env, comercio)) });
 
     return json(await intentarSumarMoneda(env, comercio, cliente));
   } catch (err) {
@@ -1077,37 +1690,197 @@ async function apiPublicSumar(request, env) {
 }
 __name(apiPublicSumar, "apiPublicSumar");
 
+// Cliente que ya es parte del club pero es su primera vez en este celular (tarjeta de puntos):
+// lo reconocemos por WhatsApp y le sumamos la moneda de esta visita.
 async function apiPublicRecuperarSesion(request, env) {
   try {
     const body = await request.json();
     const { slug } = body;
     const whatsapp = normalizarWhatsapp(body.whatsapp);
-    if (!slug || !whatsapp) return json({ error: "Falta el whatsapp" }, 400);
+    if (!slug || !whatsapp || !body.nombre) return json({ error: "Faltan tu nombre y tu WhatsApp" }, 400);
     const comercio = await findComercioByChipSlugYTipo(env, slug, "fidelizacion_puntos");
     if (!comercio) return json({ error: "Tarjeta no reconocida" }, 404);
 
     const estado = await checkAndUpdateComercioEstado(env, comercio.id);
-    if (estado !== "activo") {
-      return json({ error: "suspendido", mensaje: "Este comercio no tiene el club de fidelidad activo en este momento." }, 403);
-    }
+    if (estado !== "activo") return json(MENSAJE_SUSPENDIDO, 403);
 
+    const claves = clavesLimite(request, comercio.id, whatsapp);
+    if (await bloqueadoPorIntentos(env, claves)) return json(MENSAJE_DEMASIADOS_INTENTOS, 429);
+
+    await aplicarVencimientos(env, comercio);
     const cliente = await env.DB.prepare(
       `SELECT * FROM fidelizacion_clientes WHERE comercio_id = ? AND whatsapp = ?`
     ).bind(comercio.id, whatsapp).first();
     if (!cliente) {
-      return json({ error: "no_encontrado", mensaje: "No encontramos ese WhatsApp. Pedí que te inscriban con la otra tarjeta primero." }, 404);
+      await registrarFallo(env, claves);
+      return json({ error: "no_encontrado", mensaje: "Todavía no sos parte del club con ese número." }, 404);
     }
-
-    const cookieValue = await buildFidSessionCookie(env, comercio.id, cliente.id);
+    if (!nombreCoincide(cliente.nombre, body.nombre)) {
+      await registrarFallo(env, claves);
+      return respuestaNombreNoCoincide();
+    }
     const resultado = await intentarSumarMoneda(env, comercio, cliente);
-    const headers = new Headers({ "Content-Type": "application/json" });
-    headers.append("Set-Cookie", cookieValue);
-    return new Response(JSON.stringify(resultado), { status: 200, headers });
+    return respuestaConCookie(resultado, await buildFidSessionCookie(env, comercio.id, cliente.id));
   } catch (err) {
     return json({ error: err.message }, 500);
   }
 }
 __name(apiPublicRecuperarSesion, "apiPublicRecuperarSesion");
+
+// "Ver mi tarjeta" desde otro celular: se identifica con su WhatsApp y ve su estado, sin sumar.
+async function apiPublicVer(request, env) {
+  try {
+    const body = await request.json();
+    const slug = body.slug;
+    const whatsapp = normalizarWhatsapp(body.whatsapp);
+    if (!slug || !whatsapp || !body.nombre) return json({ error: "Faltan tu nombre y tu WhatsApp" }, 400);
+    const comercio = await findComercioByChipSlugYTipo(env, slug, TIPOS_FID);
+    if (!comercio) return json({ error: "Tarjeta no reconocida" }, 404);
+
+    const estado = await checkAndUpdateComercioEstado(env, comercio.id);
+    if (estado !== "activo") return json(MENSAJE_SUSPENDIDO, 403);
+
+    const claves = clavesLimite(request, comercio.id, whatsapp);
+    if (await bloqueadoPorIntentos(env, claves)) return json(MENSAJE_DEMASIADOS_INTENTOS, 429);
+
+    await aplicarVencimientos(env, comercio);
+    const cliente = await env.DB.prepare(
+      `SELECT * FROM fidelizacion_clientes WHERE comercio_id = ? AND whatsapp = ?`
+    ).bind(comercio.id, whatsapp).first();
+    if (!cliente) {
+      await registrarFallo(env, claves);
+      return json({ error: "no_encontrado", mensaje: "Todavía no sos parte del club con ese número." }, 404);
+    }
+    if (!nombreCoincide(cliente.nombre, body.nombre)) {
+      await registrarFallo(env, claves);
+      return respuestaNombreNoCoincide();
+    }
+    return respuestaConCookie(await estadoClienteRespuesta(env, comercio, cliente), await buildFidSessionCookie(env, comercio.id, cliente.id));
+  } catch (err) {
+    return json({ error: err.message }, 500);
+  }
+}
+__name(apiPublicVer, "apiPublicVer");
+
+// ---------- consultas compartidas (panel del comercio y panel de Tapy) ----------
+
+async function listarClientesComercio(env, comercio, conLinkTarjeta) {
+  await aplicarVencimientos(env, comercio);
+  const { results } = await env.DB.prepare(
+    `SELECT c.*,
+       (SELECT COUNT(*) FROM fidelizacion_taps t WHERE t.fidelizacion_cliente_id = c.id AND t.delta > 0) AS visitas,
+       (SELECT COUNT(*) FROM fidelizacion_canjes k WHERE k.fidelizacion_cliente_id = c.id) AS premios_canjeados
+     FROM fidelizacion_clientes c
+     WHERE c.comercio_id = ?
+     ORDER BY c.pendiente_canje DESC, c.monedas_actuales DESC, c.id DESC`
+  ).bind(comercio.id).all();
+  const lista = results || [];
+  for (const c of lista) {
+    c.vence_en_dias = diasParaVencer(comercio, c);
+    if (conLinkTarjeta) c.token_tarjeta = await tokenTarjeta(env, comercio.id, c.id);
+  }
+  return lista;
+}
+__name(listarClientesComercio, "listarClientesComercio");
+
+async function metricasComercio(env, comercio) {
+  await aplicarVencimientos(env, comercio);
+  const id = comercio.id;
+  const mesActual = `strftime('%Y-%m', 'now', '${TZ_PY}')`;
+  const mesAnterior = `strftime('%Y-%m', 'now', '${TZ_PY}', 'start of month', '-1 month')`;
+  const joinTaps = `FROM fidelizacion_taps t JOIN fidelizacion_clientes c ON c.id = t.fidelizacion_cliente_id WHERE c.comercio_id = ?`;
+  const joinCanjes = `FROM fidelizacion_canjes k JOIN fidelizacion_clientes c ON c.id = k.fidelizacion_cliente_id WHERE c.comercio_id = ?`;
+  const dias = Number(comercio.validez_dias) || 0;
+  const q = (sql, ...binds) => env.DB.prepare(sql).bind(...binds);
+  const res = await env.DB.batch([
+    q(`SELECT COUNT(*) AS n ${joinTaps} AND t.delta > 0 AND strftime('%Y-%m', t.ts, '${TZ_PY}') = ${mesActual}`, id),
+    q(`SELECT COUNT(*) AS n ${joinTaps} AND t.delta > 0 AND strftime('%Y-%m', t.ts, '${TZ_PY}') = ${mesAnterior}`, id),
+    q(`SELECT COUNT(*) AS n FROM fidelizacion_clientes WHERE comercio_id = ? AND strftime('%Y-%m', created_at, '${TZ_PY}') = ${mesActual}`, id),
+    q(`SELECT COUNT(*) AS n ${joinCanjes} AND strftime('%Y-%m', k.ts, '${TZ_PY}') = ${mesActual}`, id),
+    q(`SELECT COUNT(*) AS n ${joinCanjes}`, id),
+    q(`SELECT COUNT(*) AS n FROM fidelizacion_clientes WHERE comercio_id = ?`, id),
+    q(`SELECT COUNT(*) AS n FROM (SELECT t.fidelizacion_cliente_id ${joinTaps} AND t.delta > 0 GROUP BY t.fidelizacion_cliente_id HAVING COUNT(*) >= 2)`, id),
+    q(`SELECT COUNT(*) AS n FROM fidelizacion_clientes WHERE comercio_id = ? AND ultimo_tap IS NOT NULL AND julianday('now') - julianday(ultimo_tap) <= 30`, id),
+    q(`SELECT COUNT(*) AS n FROM fidelizacion_clientes WHERE comercio_id = ? AND pendiente_canje = 1`, id),
+    q(`SELECT COUNT(*) AS n FROM fidelizacion_clientes WHERE comercio_id = ? AND pendiente_canje = 0 AND monedas_actuales > 0 AND ? > 0
+         AND MAX(COALESCE(ultimo_tap, created_at), ?) < ?`, id, dias, comercio.validez_desde || "",
+      fechaDb(new Date(Date.now() - Math.max(0, dias - AVISO_VENCIMIENTO_DIAS) * 86400000))),
+    q(`SELECT COALESCE(SUM(-t.delta), 0) AS n ${joinTaps} AND t.origen = 'vencimiento' AND strftime('%Y-%m', t.ts, '${TZ_PY}') = ${mesActual}`, id)
+  ]);
+  const n = (i) => (res[i] && res[i].results && res[i].results[0] ? Number(res[i].results[0].n) || 0 : 0);
+  const clientesTotal = n(5);
+  const recurrentes = n(6);
+  return {
+    visitas_mes: n(0),
+    visitas_mes_anterior: n(1),
+    nuevos_mes: n(2),
+    premios_mes: n(3),
+    premios_total: n(4),
+    clientes_total: clientesTotal,
+    clientes_recurrentes: recurrentes,
+    tasa_retorno: clientesTotal ? Math.round((recurrentes / clientesTotal) * 100) : 0,
+    activos_30: n(7),
+    esperando_premio: n(8),
+    por_vencer: n(9),
+    monedas_vencidas_mes: n(10)
+  };
+}
+__name(metricasComercio, "metricasComercio");
+
+// Despues de cambiar la configuracion: nadie queda en un nivel que ya no existe, y quien ya tiene
+// las monedas que ahora alcanzan para el nivel pasa a "esperando premio" al instante.
+// Si se achico el vencimiento, el reloj arranca de nuevo desde hoy (nadie pierde monedas de golpe).
+async function normalizarTrasConfig(env, comercioId, campos, validezAnterior) {
+  if (campos.niveles) {
+    await env.DB.prepare(
+      `UPDATE fidelizacion_clientes SET nivel_actual = ? WHERE comercio_id = ? AND nivel_actual > ?`
+    ).bind(campos.niveles, comercioId, campos.niveles).run();
+  }
+  if (campos.monedas_por_nivel) {
+    await env.DB.prepare(
+      `UPDATE fidelizacion_clientes SET monedas_actuales = ?, pendiente_canje = 1
+       WHERE comercio_id = ? AND pendiente_canje = 0 AND monedas_actuales >= ?`
+    ).bind(campos.monedas_por_nivel, comercioId, campos.monedas_por_nivel).run();
+  }
+  if (campos.validez_dias && Number(validezAnterior) && campos.validez_dias < Number(validezAnterior)) {
+    try {
+      await env.DB.prepare(`UPDATE fidelizacion_comercios SET validez_desde = datetime('now') WHERE id = ?`).bind(comercioId).run();
+    } catch (e) {} // columna de la migracion v3 todavia no creada
+  }
+}
+__name(normalizarTrasConfig, "normalizarTrasConfig");
+
+function validarConfigNumerica(body) {
+  // Devuelve { campos: {col: valor}, error }
+  const campos = {};
+  if (body.niveles !== undefined) {
+    const v = parseInt(body.niveles, 10);
+    if (!(v >= 1 && v <= 20)) return { error: "Los niveles tienen que ser entre 1 y 20" };
+    campos.niveles = v;
+  }
+  if (body.monedas_por_nivel !== undefined) {
+    const v = parseInt(body.monedas_por_nivel, 10);
+    if (!(v >= 1 && v <= 100)) return { error: "Las monedas por nivel tienen que ser entre 1 y 100" };
+    campos.monedas_por_nivel = v;
+  }
+  if (body.horas_entre_sumas !== undefined) {
+    const v = parseFloat(body.horas_entre_sumas);
+    if (!isFinite(v)) return { error: "Espera entre sumas inválida" };
+    campos.horas_entre_sumas = Math.min(MAX_HORAS_ENTRE_SUMAS, Math.max(MIN_HORAS_ENTRE_SUMAS, v));
+  }
+  if (body.tope_diario !== undefined) {
+    const v = parseInt(body.tope_diario, 10);
+    if (!(v >= 1 && v <= 20)) return { error: "El máximo por día tiene que ser entre 1 y 20" };
+    campos.tope_diario = v;
+  }
+  if (body.validez_dias !== undefined) {
+    const v = parseInt(body.validez_dias, 10);
+    if (!(v >= 14 && v <= 3650)) return { error: "El vencimiento tiene que ser de al menos 14 días" };
+    campos.validez_dias = v;
+  }
+  return { campos };
+}
+__name(validarConfigNumerica, "validarConfigNumerica");
 
 // ---------- endpoints admin (panel de Enzo) ----------
 
@@ -1134,16 +1907,13 @@ async function eliminarFidelizacionComercio(env, comercioId, liberarChips) {
   ).bind(comercioId).first();
   if (!comercio) return;
 
-  const { results: clientes } = await env.DB.prepare(
-    `SELECT id FROM fidelizacion_clientes WHERE comercio_id = ?`
-  ).bind(comercioId).all();
-  for (const c of clientes) {
-    await env.DB.prepare(`DELETE FROM fidelizacion_taps WHERE fidelizacion_cliente_id = ?`).bind(c.id).run();
-    await env.DB.prepare(`DELETE FROM fidelizacion_canjes WHERE fidelizacion_cliente_id = ?`).bind(c.id).run();
-  }
-  await env.DB.prepare(`DELETE FROM fidelizacion_clientes WHERE comercio_id = ?`).bind(comercioId).run();
-  await env.DB.prepare(`DELETE FROM fidelizacion_premios WHERE comercio_id = ?`).bind(comercioId).run();
-  await env.DB.prepare(`DELETE FROM fidelizacion_cobros WHERE comercio_id = ?`).bind(comercioId).run();
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM fidelizacion_taps WHERE fidelizacion_cliente_id IN (SELECT id FROM fidelizacion_clientes WHERE comercio_id = ?)`).bind(comercioId),
+    env.DB.prepare(`DELETE FROM fidelizacion_canjes WHERE fidelizacion_cliente_id IN (SELECT id FROM fidelizacion_clientes WHERE comercio_id = ?)`).bind(comercioId),
+    env.DB.prepare(`DELETE FROM fidelizacion_clientes WHERE comercio_id = ?`).bind(comercioId),
+    env.DB.prepare(`DELETE FROM fidelizacion_premios WHERE comercio_id = ?`).bind(comercioId),
+    env.DB.prepare(`DELETE FROM fidelizacion_cobros WHERE comercio_id = ?`).bind(comercioId)
+  ]);
 
   if (liberarChips) {
     const stockClientId = await getStockClientId(env);
@@ -1174,7 +1944,9 @@ __name(apiFidComercioDelete, "apiFidComercioDelete");
 async function apiFidChipsLibres(env) {
   try {
     const { results } = await env.DB.prepare(
-      `SELECT id, slug, numero_lote FROM chips WHERE status = 'sin_asignar' ORDER BY numero_lote ASC, id ASC`
+      `SELECT id, slug, numero_lote FROM chips
+       WHERE status = 'sin_asignar' AND distribuidor_id IS NULL AND (tipo IS NULL OR tipo = 'resena')
+       ORDER BY numero_lote ASC, id ASC`
     ).all();
     return json(results);
   } catch (err) {
@@ -1224,6 +1996,7 @@ async function apiFidComerciosList(env) {
        LEFT JOIN chips chip_p ON chip_p.id = fidelizacion_comercios.nfc_puntos_chip_id
        ORDER BY clients.name`
     ).all();
+    for (const r of results || []) delete r.password_hash;
     return json(results);
   } catch (err) {
     return json({ error: err.message }, 500);
@@ -1237,8 +2010,10 @@ async function apiFidComercioCreate(request, env) {
     if (!body.client_id) return json({ error: "Falta client_id" }, 400);
     const existing = await env.DB.prepare(`SELECT id FROM fidelizacion_comercios WHERE client_id = ?`).bind(body.client_id).first();
     if (existing) return json({ error: "Ese comercio ya tiene fidelizacion activada" }, 409);
-    if (!body.usuario || !body.password) return json({ error: "Falta usuario y contraseña para el panel del comercio" }, 400);
-    const existingUser = await env.DB.prepare(`SELECT id FROM fidelizacion_comercios WHERE usuario = ?`).bind(body.usuario).first();
+    const usuario = String(body.usuario || "").trim();
+    if (!usuario || !body.password) return json({ error: "Falta usuario y contraseña para el panel del comercio" }, 400);
+    if (String(body.password).length < 6) return json({ error: "La contraseña del comercio tiene que tener al menos 6 caracteres" }, 400);
+    const existingUser = await env.DB.prepare(`SELECT id FROM fidelizacion_comercios WHERE usuario = ?`).bind(usuario).first();
     if (existingUser) return json({ error: "Ese usuario ya existe, elegi otro" }, 409);
 
     // Validamos TODO (incluidas las 2 tarjetas) antes de escribir nada en la base: si algo
@@ -1255,17 +2030,21 @@ async function apiFidComercioCreate(request, env) {
       return json({ error: err.message }, 409);
     }
 
-    const niveles = parseInt(body.niveles, 10) || 5;
-    const monedasPorNivel = parseInt(body.monedas_por_nivel, 10) || 10;
-    const validezDias = parseInt(body.validez_dias, 10) || 90;
-    const horasEntreSumas = (body.horas_entre_sumas === undefined || body.horas_entre_sumas === null || body.horas_entre_sumas === "")
-      ? 4 : parseFloat(body.horas_entre_sumas);
-    const passwordHash = await sha256Hex(body.password);
+    const conDefaults = {
+      niveles: body.niveles ?? 5,
+      monedas_por_nivel: body.monedas_por_nivel ?? 10,
+      horas_entre_sumas: body.horas_entre_sumas === undefined || body.horas_entre_sumas === null || body.horas_entre_sumas === "" ? 4 : body.horas_entre_sumas,
+      tope_diario: body.tope_diario ?? TOPE_DIARIO_DEFAULT,
+      validez_dias: body.validez_dias ?? 90
+    };
+    const { campos, error } = validarConfigNumerica(conDefaults);
+    if (error) return json({ error }, 400);
+    const passwordHash = await hashPasswordComercio(String(body.password));
 
     const result = await env.DB.prepare(
-      `INSERT INTO fidelizacion_comercios (client_id, usuario, password_hash, niveles, monedas_por_nivel, validez_dias, horas_entre_sumas)
-       VALUES (?,?,?,?,?,?,?)`
-    ).bind(body.client_id, body.usuario, passwordHash, niveles, monedasPorNivel, validezDias, horasEntreSumas).run();
+      `INSERT INTO fidelizacion_comercios (client_id, usuario, password_hash, niveles, monedas_por_nivel, validez_dias, horas_entre_sumas, tope_diario)
+       VALUES (?,?,?,?,?,?,?,?)`
+    ).bind(body.client_id, usuario, passwordHash, campos.niveles, campos.monedas_por_nivel, campos.validez_dias, campos.horas_entre_sumas, campos.tope_diario).run();
     const comercioId = result.meta.last_row_id;
 
     const premios = Array.isArray(body.premios) ? body.premios : [];
@@ -1282,8 +2061,6 @@ async function apiFidComercioCreate(request, env) {
     // le genere un chip virtual nuevo. Cada tarjeta se resuelve de forma independiente.
     const chipIns = await reclamarChipFidelizacion(env, body.client_id, chipInsValidado, "fidelizacion_inscripcion", "Fidelizacion - inscripcion");
     const chipPun = await reclamarChipFidelizacion(env, body.client_id, chipPunValidado, "fidelizacion_puntos", "Fidelizacion - puntos");
-    const slugInscripcion = chipIns.slug;
-    const slugPuntos = chipPun.slug;
 
     await env.DB.prepare(
       `UPDATE fidelizacion_comercios SET nfc_inscripcion_chip_id = ?, nfc_puntos_chip_id = ? WHERE id = ?`
@@ -1296,37 +2073,37 @@ async function apiFidComercioCreate(request, env) {
        VALUES (?, ?, ?, ?, 'pendiente')`
     ).bind(comercioId, fechaVencimiento.toISOString().slice(0, 7), body.monto_mensual || null, fechaVencimiento.toISOString().slice(0, 10)).run();
 
-    return json({ id: comercioId, slug_inscripcion: slugInscripcion, slug_puntos: slugPuntos });
+    return json({ id: comercioId, slug_inscripcion: chipIns.slug, slug_puntos: chipPun.slug });
   } catch (err) {
     return json({ error: err.message }, 500);
   }
 }
 __name(apiFidComercioCreate, "apiFidComercioCreate");
 
-var FID_COMERCIO_EDITABLE = ["niveles", "monedas_por_nivel", "horas_entre_sumas"];
 async function apiFidComercioPatch(id, request, env) {
   try {
     const body = await request.json();
-    const fields = [];
-    const values = [];
-    for (const key of FID_COMERCIO_EDITABLE) {
-      if (body[key] !== undefined) { fields.push(`${key} = ?`); values.push(body[key]); }
-    }
-    if (body.validez_dias !== undefined) {
-      fields.push("validez_dias = ?");
-      values.push(body.validez_dias);
-    }
-    if (body.resetear_bloqueo_validez) {
-      fields.push("validez_editada_por_comercio = 0");
+    const { campos, error } = validarConfigNumerica(body);
+    if (error) return json({ error }, 400);
+    const fields = Object.keys(campos).map((k) => `${k} = ?`);
+    const values = Object.keys(campos).map((k) => campos[k]);
+    if (body.resetear_bloqueo_validez) fields.push("validez_editada_por_comercio = 0");
+    if (body.password !== undefined && body.password !== null && body.password !== "") {
+      if (String(body.password).length < 6) return json({ error: "La contraseña nueva tiene que tener al menos 6 caracteres" }, 400);
+      fields.push("password_hash = ?");
+      values.push(await hashPasswordComercio(String(body.password)));
     }
     if (body.monto_mensual !== undefined) {
       await env.DB.prepare(
         `UPDATE fidelizacion_cobros SET monto = ? WHERE comercio_id = ? AND estado = 'pendiente'`
       ).bind(body.monto_mensual, id).run();
     }
-    if (!fields.length) return json({ ok: true });
-    values.push(id);
-    await env.DB.prepare(`UPDATE fidelizacion_comercios SET ${fields.join(", ")} WHERE id = ?`).bind(...values).run();
+    const anterior = await env.DB.prepare(`SELECT validez_dias FROM fidelizacion_comercios WHERE id = ?`).bind(id).first();
+    if (fields.length) {
+      values.push(id);
+      await env.DB.prepare(`UPDATE fidelizacion_comercios SET ${fields.join(", ")} WHERE id = ?`).bind(...values).run();
+    }
+    await normalizarTrasConfig(env, id, campos, anterior ? anterior.validez_dias : null);
     return json({ ok: true });
   } catch (err) {
     return json({ error: err.message }, 500);
@@ -1336,8 +2113,7 @@ __name(apiFidComercioPatch, "apiFidComercioPatch");
 
 async function apiFidPremiosGet(comercioId, env) {
   try {
-    const { results } = await env.DB.prepare(`SELECT nivel, descripcion FROM fidelizacion_premios WHERE comercio_id = ? ORDER BY nivel`).bind(comercioId).all();
-    return json(results);
+    return json(await premiosDeComercio(env, comercioId));
   } catch (err) {
     return json({ error: err.message }, 500);
   }
@@ -1348,12 +2124,14 @@ async function apiFidPremiosPatch(comercioId, request, env) {
   try {
     const body = await request.json();
     const premios = Array.isArray(body.premios) ? body.premios : [];
-    const statements = premios.map((p) =>
-      env.DB.prepare(
-        `INSERT INTO fidelizacion_premios (comercio_id, nivel, descripcion) VALUES (?,?,?)
-         ON CONFLICT(comercio_id, nivel) DO UPDATE SET descripcion = excluded.descripcion`
-      ).bind(comercioId, p.nivel, p.descripcion)
-    );
+    const statements = premios
+      .filter((p) => parseInt(p.nivel, 10) >= 1)
+      .map((p) =>
+        env.DB.prepare(
+          `INSERT INTO fidelizacion_premios (comercio_id, nivel, descripcion) VALUES (?,?,?)
+           ON CONFLICT(comercio_id, nivel) DO UPDATE SET descripcion = excluded.descripcion`
+        ).bind(comercioId, parseInt(p.nivel, 10), String(p.descripcion || "").trim().slice(0, 120))
+      );
     if (statements.length) await env.DB.batch(statements);
     return json({ ok: true });
   } catch (err) {
@@ -1378,15 +2156,25 @@ __name(apiFidComercioEstado, "apiFidComercioEstado");
 
 async function apiFidComercioClientes(comercioId, env) {
   try {
-    const { results } = await env.DB.prepare(
-      `SELECT * FROM fidelizacion_clientes WHERE comercio_id = ? ORDER BY pendiente_canje DESC, monedas_actuales DESC`
-    ).bind(comercioId).all();
-    return json(results);
+    const comercio = await env.DB.prepare(`SELECT * FROM fidelizacion_comercios WHERE id = ?`).bind(comercioId).first();
+    if (!comercio) return json({ error: "Comercio no encontrado" }, 404);
+    return json(await listarClientesComercio(env, comercio, false));
   } catch (err) {
     return json({ error: err.message }, 500);
   }
 }
 __name(apiFidComercioClientes, "apiFidComercioClientes");
+
+async function apiFidComercioMetricas(comercioId, env) {
+  try {
+    const comercio = await env.DB.prepare(`SELECT * FROM fidelizacion_comercios WHERE id = ?`).bind(comercioId).first();
+    if (!comercio) return json({ error: "Comercio no encontrado" }, 404);
+    return json(await metricasComercio(env, comercio));
+  } catch (err) {
+    return json({ error: err.message }, 500);
+  }
+}
+__name(apiFidComercioMetricas, "apiFidComercioMetricas");
 
 // ---------- COBROS (panel admin) ----------
 
@@ -1413,6 +2201,24 @@ async function apiCobrosList(env) {
 }
 __name(apiCobrosList, "apiCobrosList");
 
+async function apiCobrosHistorial(env) {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT fidelizacion_cobros.*, clients.name AS comercio_nombre
+       FROM fidelizacion_cobros
+       JOIN fidelizacion_comercios ON fidelizacion_cobros.comercio_id = fidelizacion_comercios.id
+       JOIN clients ON fidelizacion_comercios.client_id = clients.id
+       WHERE fidelizacion_cobros.estado = 'pagado'
+       ORDER BY fidelizacion_cobros.fecha_pagado DESC
+       LIMIT 300`
+    ).all();
+    return json(results);
+  } catch (err) {
+    return json({ error: err.message }, 500);
+  }
+}
+__name(apiCobrosHistorial, "apiCobrosHistorial");
+
 async function apiCobroSolicitar(id, env) {
   try {
     await env.DB.prepare(
@@ -1429,13 +2235,14 @@ async function apiCobroPagado(id, env) {
   try {
     const cobro = await env.DB.prepare(`SELECT * FROM fidelizacion_cobros WHERE id = ?`).bind(id).first();
     if (!cobro) return json({ error: "Cobro no encontrado" }, 404);
+    if (cobro.estado === "pagado") return json({ error: "Ese cobro ya estaba marcado como pagado" }, 409);
     await env.DB.prepare(
       `UPDATE fidelizacion_cobros SET estado = 'pagado', fecha_pagado = datetime('now') WHERE id = ?`
     ).bind(id).run();
     await env.DB.prepare(`UPDATE fidelizacion_comercios SET estado = 'activo' WHERE id = ?`).bind(cobro.comercio_id).run();
 
-    const proximoVencimiento = new Date(cobro.fecha_vencimiento);
-    proximoVencimiento.setMonth(proximoVencimiento.getMonth() + 1);
+    const proximoVencimiento = new Date(cobro.fecha_vencimiento + "T12:00:00Z");
+    proximoVencimiento.setUTCMonth(proximoVencimiento.getUTCMonth() + 1);
     await env.DB.prepare(
       `INSERT INTO fidelizacion_cobros (comercio_id, periodo, monto, fecha_vencimiento, estado)
        VALUES (?, ?, ?, ?, 'pendiente')`
@@ -1450,20 +2257,52 @@ __name(apiCobroPagado, "apiCobroPagado");
 
 // ---------- endpoints del panel del comercio (login propio) ----------
 
+async function dominioActivo(env) {
+  try {
+    const row = await env.DB.prepare(`SELECT value FROM settings WHERE key = 'dominio_activo'`).first();
+    return row && row.value ? String(row.value).replace(/\/$/, "") : null;
+  } catch (e) {
+    return null;
+  }
+}
+__name(dominioActivo, "dominioActivo");
+
+async function clienteDelComercio(env, comercio, clienteId) {
+  return env.DB.prepare(`SELECT * FROM fidelizacion_clientes WHERE id = ? AND comercio_id = ?`).bind(clienteId, comercio.id).first();
+}
+__name(clienteDelComercio, "clienteDelComercio");
+
 async function handleComercioApi(request, env, path, comercio) {
   const method = request.method;
 
+  // Comercio suspendido por falta de pago: solo puede ver su estado y cambiar su contraseña.
+  if (path !== "/api/comercio/me" && path !== "/api/comercio/password") {
+    const estadoActual = await checkAndUpdateComercioEstado(env, comercio.id);
+    if (estadoActual === "suspendido") {
+      return json({ error: "Tu club está suspendido por falta de pago. Escribile a Tapy para reactivarlo.", suspendido: true }, 403);
+    }
+  }
+
   if (path === "/api/comercio/me" && method === "GET") {
     const cliente = await env.DB.prepare(`SELECT name, whatsapp FROM clients WHERE id = ?`).bind(comercio.client_id).first();
+    const chipIns = comercio.nfc_inscripcion_chip_id
+      ? await env.DB.prepare(`SELECT slug FROM chips WHERE id = ?`).bind(comercio.nfc_inscripcion_chip_id).first() : null;
+    const chipPun = comercio.nfc_puntos_chip_id
+      ? await env.DB.prepare(`SELECT slug FROM chips WHERE id = ?`).bind(comercio.nfc_puntos_chip_id).first() : null;
     return json({
       id: comercio.id,
+      usuario: comercio.usuario,
       nombre: cliente ? cliente.name : "",
       niveles: comercio.niveles,
       monedas_por_nivel: comercio.monedas_por_nivel,
       validez_dias: comercio.validez_dias,
       validez_editada_por_comercio: !!comercio.validez_editada_por_comercio,
-      horas_entre_sumas: (comercio.horas_entre_sumas === null || comercio.horas_entre_sumas === undefined) ? 4 : comercio.horas_entre_sumas,
-      estado: comercio.estado
+      horas_entre_sumas: horasEsperaComercio(comercio),
+      tope_diario: topeDiarioComercio(comercio),
+      estado: (await checkAndUpdateComercioEstado(env, comercio.id)) || comercio.estado,
+      slug_inscripcion: chipIns ? chipIns.slug : null,
+      slug_puntos: chipPun ? chipPun.slug : null,
+      dominio: await dominioActivo(env)
     });
   }
 
@@ -1477,47 +2316,179 @@ async function handleComercioApi(request, env, path, comercio) {
   if (path === "/api/comercio/config" && method === "PATCH") {
     try {
       const body = await request.json();
-      const fields = [];
-      const values = [];
-      if (body.niveles !== undefined) { fields.push("niveles = ?"); values.push(body.niveles); }
-      if (body.monedas_por_nivel !== undefined) { fields.push("monedas_por_nivel = ?"); values.push(body.monedas_por_nivel); }
-      if (body.horas_entre_sumas !== undefined) { fields.push("horas_entre_sumas = ?"); values.push(body.horas_entre_sumas); }
-      if (body.validez_dias !== undefined) {
-        if (comercio.validez_editada_por_comercio) {
-          return json({ error: "Ya usaste tu cambio gratuito de la validez del cupón. Pedile a Tapy que lo actualice." }, 403);
-        }
-        fields.push("validez_dias = ?");
-        values.push(body.validez_dias);
-        fields.push("validez_editada_por_comercio = 1");
+      const permitido = {};
+      for (const k of ["niveles", "monedas_por_nivel", "horas_entre_sumas", "tope_diario"]) {
+        if (body[k] !== undefined) permitido[k] = body[k];
       }
-      if (!fields.length) return json({ error: "Nada valido para actualizar" }, 400);
+      const cambiaValidez = body.validez_dias !== undefined && Number(body.validez_dias) !== Number(comercio.validez_dias);
+      if (cambiaValidez) {
+        if (comercio.validez_editada_por_comercio) {
+          return json({ error: "Ya usaste tu cambio gratuito del vencimiento. Pedile a Tapy que lo actualice." }, 403);
+        }
+        permitido.validez_dias = body.validez_dias;
+      }
+      const { campos, error } = validarConfigNumerica(permitido);
+      if (error) return json({ error }, 400);
+      const fields = Object.keys(campos).map((k) => `${k} = ?`);
+      const values = Object.keys(campos).map((k) => campos[k]);
+      if (cambiaValidez) fields.push("validez_editada_por_comercio = 1");
+      if (!fields.length) return json({ ok: true });
       values.push(comercio.id);
       await env.DB.prepare(`UPDATE fidelizacion_comercios SET ${fields.join(", ")} WHERE id = ?`).bind(...values).run();
+      await normalizarTrasConfig(env, comercio.id, campos, comercio.validez_dias);
       return json({ ok: true });
     } catch (err) {
       return json({ error: err.message }, 500);
     }
   }
 
+  if (path === "/api/comercio/password" && method === "POST") {
+    try {
+      const body = await request.json();
+      if (!(await verificarPasswordComercio(body.actual, comercio.password_hash))) {
+        return json({ error: "La contraseña actual no es correcta" }, 400);
+      }
+      const nueva = String(body.nueva || "");
+      if (nueva.length < 6) return json({ error: "La contraseña nueva tiene que tener al menos 6 caracteres" }, 400);
+      const nuevoHash = await hashPasswordComercio(nueva);
+      await env.DB.prepare(`UPDATE fidelizacion_comercios SET password_hash = ? WHERE id = ?`).bind(nuevoHash, comercio.id).run();
+      comercio.password_hash = nuevoHash;
+      return respuestaConCookie({ ok: true }, cookieSesionComercio(await tokenSesionComercio(env, comercio)));
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
+  if (path === "/api/comercio/metricas" && method === "GET") {
+    try {
+      return json(await metricasComercio(env, comercio));
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
   if (path === "/api/comercio/clientes" && method === "GET") {
-    return apiFidComercioClientes(comercio.id, env);
+    try {
+      return json(await listarClientesComercio(env, comercio, true));
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
   }
 
   const canjearMatch = path.match(/^\/api\/comercio\/clientes\/(\d+)\/canjear$/);
   if (canjearMatch && method === "POST") {
     try {
-      const clienteId = canjearMatch[1];
-      const cliente = await env.DB.prepare(`SELECT * FROM fidelizacion_clientes WHERE id = ? AND comercio_id = ?`).bind(clienteId, comercio.id).first();
+      const cliente = await clienteDelComercio(env, comercio, canjearMatch[1]);
       if (!cliente) return json({ error: "Cliente no encontrado" }, 404);
       if (!cliente.pendiente_canje) return json({ error: "Este cliente todavia no completo el nivel" }, 409);
-      const nuevoNivel = Math.min(cliente.nivel_actual + 1, comercio.niveles);
-      await env.DB.prepare(
-        `UPDATE fidelizacion_clientes SET nivel_actual = ?, monedas_actuales = 0, pendiente_canje = 0 WHERE id = ?`
-      ).bind(nuevoNivel, clienteId).run();
+      const premios = await premiosDeComercio(env, comercio.id);
+      const premioDe = (n) => {
+        const p = premios.find((x) => Number(x.nivel) === Number(n));
+        return p && p.descripcion ? p.descripcion : null;
+      };
+      const esUltimo = Number(cliente.nivel_actual) >= Number(comercio.niveles);
+      const nuevoNivel = esUltimo ? 1 : Number(cliente.nivel_actual) + 1;
+      const vueltas = (Number(cliente.vueltas_completadas) || 0) + (esUltimo ? 1 : 0);
+      // Condicional: si se toca "Entregar premio" dos veces, la segunda no hace nada.
+      const upd = await env.DB.prepare(
+        `UPDATE fidelizacion_clientes SET nivel_actual = ?, monedas_actuales = 0, pendiente_canje = 0, vueltas_completadas = ?, aviso_vencimiento_at = NULL
+         WHERE id = ? AND pendiente_canje = 1 AND nivel_actual = ?`
+      ).bind(nuevoNivel, vueltas, cliente.id, cliente.nivel_actual).run();
+      if (!upd.meta || !upd.meta.changes) return json({ error: "Este premio ya se entregó recién" }, 409);
       await env.DB.prepare(
         `INSERT INTO fidelizacion_canjes (fidelizacion_cliente_id, nivel_canjeado) VALUES (?, ?)`
-      ).bind(clienteId, cliente.nivel_actual).run();
-      return json({ ok: true, nuevo_nivel: nuevoNivel });
+      ).bind(cliente.id, cliente.nivel_actual).run();
+      return json({
+        ok: true,
+        nivel_canjeado: cliente.nivel_actual,
+        premio_entregado: premioDe(cliente.nivel_actual),
+        nuevo_nivel: nuevoNivel,
+        nuevo_premio: premioDe(nuevoNivel),
+        reinicio: esUltimo,
+        vueltas_completadas: vueltas
+      });
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
+  const ajustarMatch = path.match(/^\/api\/comercio\/clientes\/(\d+)\/ajustar$/);
+  if (ajustarMatch && method === "POST") {
+    try {
+      const body = await request.json();
+      const delta = Number(body.delta);
+      const cliente = await clienteDelComercio(env, comercio, ajustarMatch[1]);
+      if (!cliente) return json({ error: "Cliente no encontrado" }, 404);
+      if (delta === 1) {
+        if (cliente.pendiente_canje) return json({ error: "Este cliente ya completó el nivel. Entregale el premio primero." }, 409);
+        const r = await acreditarMoneda(env, comercio, cliente, "manual");
+        if (!r.acreditada) return json({ error: "Las monedas de este cliente acaban de cambiar. Actualizá y probá de nuevo." }, 409);
+        return json({ ok: true, monedas_actuales: cliente.monedas_actuales, nivel_completo: r.nivelCompleto });
+      }
+      if (delta === -1) {
+        if (!(cliente.monedas_actuales > 0)) return json({ error: "Este cliente no tiene monedas para restar" }, 409);
+        // Condicional (evita bajar de 0 con doble clic). Si estaba esperando premio, el reloj
+        // del vencimiento arranca de nuevo: sus monedas no pueden vencer de golpe por una correccion.
+        const upd = await env.DB.prepare(
+          `UPDATE fidelizacion_clientes
+             SET monedas_actuales = monedas_actuales - 1,
+                 ultimo_tap = CASE WHEN pendiente_canje = 1 THEN datetime('now') ELSE ultimo_tap END,
+                 pendiente_canje = 0
+           WHERE id = ? AND monedas_actuales = ?`
+        ).bind(cliente.id, cliente.monedas_actuales).run();
+        if (!upd.meta || !upd.meta.changes) return json({ error: "Las monedas de este cliente acaban de cambiar. Actualizá y probá de nuevo." }, 409);
+        await env.DB.prepare(
+          `INSERT INTO fidelizacion_taps (fidelizacion_cliente_id, delta, origen) VALUES (?, -1, 'manual')`
+        ).bind(cliente.id).run();
+        return json({ ok: true, monedas_actuales: cliente.monedas_actuales - 1, nivel_completo: false });
+      }
+      return json({ error: "Ajuste invalido" }, 400);
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
+  const avisoMatch = path.match(/^\/api\/comercio\/clientes\/(\d+)\/aviso$/);
+  if (avisoMatch && method === "POST") {
+    try {
+      const cliente = await clienteDelComercio(env, comercio, avisoMatch[1]);
+      if (!cliente) return json({ error: "Cliente no encontrado" }, 404);
+      await env.DB.prepare(`UPDATE fidelizacion_clientes SET aviso_vencimiento_at = datetime('now') WHERE id = ?`).bind(cliente.id).run();
+      return json({ ok: true });
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
+  const historialMatch = path.match(/^\/api\/comercio\/clientes\/(\d+)\/historial$/);
+  if (historialMatch && method === "GET") {
+    try {
+      const cliente = await clienteDelComercio(env, comercio, historialMatch[1]);
+      if (!cliente) return json({ error: "Cliente no encontrado" }, 404);
+      const res = await env.DB.batch([
+        env.DB.prepare(`SELECT id, ts, delta, origen FROM fidelizacion_taps WHERE fidelizacion_cliente_id = ? ORDER BY id DESC LIMIT 200`).bind(cliente.id),
+        env.DB.prepare(`SELECT id, ts, nivel_canjeado FROM fidelizacion_canjes WHERE fidelizacion_cliente_id = ? ORDER BY id DESC LIMIT 100`).bind(cliente.id)
+      ]);
+      const movimientos = (res[0].results || []).map((t) => ({ ts: t.ts, tipo: t.origen, delta: t.delta }));
+      const canjes = (res[1].results || []).map((k) => ({ ts: k.ts, tipo: "canje", nivel: k.nivel_canjeado }));
+      const todo = movimientos.concat(canjes).sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
+      return json({ cliente: { id: cliente.id, nombre: cliente.nombre, whatsapp: cliente.whatsapp, created_at: cliente.created_at }, historial: todo });
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
+  const clienteMatch = path.match(/^\/api\/comercio\/clientes\/(\d+)$/);
+  if (clienteMatch && method === "DELETE") {
+    try {
+      const cliente = await clienteDelComercio(env, comercio, clienteMatch[1]);
+      if (!cliente) return json({ error: "Cliente no encontrado" }, 404);
+      await env.DB.batch([
+        env.DB.prepare(`DELETE FROM fidelizacion_taps WHERE fidelizacion_cliente_id = ?`).bind(cliente.id),
+        env.DB.prepare(`DELETE FROM fidelizacion_canjes WHERE fidelizacion_cliente_id = ?`).bind(cliente.id),
+        env.DB.prepare(`DELETE FROM fidelizacion_clientes WHERE id = ?`).bind(cliente.id)
+      ]);
+      return json({ ok: true });
     } catch (err) {
       return json({ error: err.message }, 500);
     }
