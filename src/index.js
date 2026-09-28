@@ -1233,8 +1233,11 @@ function horasEsperaComercio(comercio) {
 }
 __name(horasEsperaComercio, "horasEsperaComercio");
 
+// 0 = sin limite por dia (ej: un bar). Igual rige la espera minima entre monedas y el encargado
+// controla cada moneda con los avisos.
 function topeDiarioComercio(comercio) {
   const t = parseInt(comercio.tope_diario, 10);
+  if (t === 0) return 0;
   return t > 0 ? t : TOPE_DIARIO_DEFAULT;
 }
 __name(topeDiarioComercio, "topeDiarioComercio");
@@ -1613,7 +1616,7 @@ async function intentarSumarMoneda(env, comercio, cliente, slug, pase, via) {
 
   // Tope por dia calendario de Paraguay (se reinicia a medianoche, no 24 h despues)
   const tope = topeDiarioComercio(comercio);
-  const hoy = await env.DB.prepare(
+  const hoy = tope === 0 ? null : await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM fidelizacion_taps
      WHERE fidelizacion_cliente_id = ? AND delta > 0 AND origen IN ('tap', 'bienvenida')
        AND date(ts, '${TZ_PY}') = date('now', '${TZ_PY}')`
@@ -2232,7 +2235,7 @@ function validarConfigNumerica(body) {
   }
   if (body.tope_diario !== undefined) {
     const v = parseInt(body.tope_diario, 10);
-    if (!(v >= 1 && v <= 20)) return { error: "El máximo por día tiene que ser entre 1 y 20" };
+    if (!(v === 0 || (v >= 1 && v <= 20))) return { error: "El máximo por día tiene que ser entre 1 y 20, o sin límite" };
     campos.tope_diario = v;
   }
   if (body.validez_dias !== undefined) {
@@ -2335,7 +2338,7 @@ __name(apiFidChipsLibres, "apiFidChipsLibres");
 // Se corre ANTES de crear el comercio, para no dejar filas a medio crear si algo falla.
 async function validarChipFidelizacion(env, chipId) {
   if (!chipId) return null; // sin chipId: se genera uno virtual mas adelante, nada que validar
-  const chip = await env.DB.prepare(`SELECT id, slug, status FROM chips WHERE id = ?`).bind(chipId).first();
+  const chip = await env.DB.prepare(`SELECT id, slug, status, numero_lote FROM chips WHERE id = ?`).bind(chipId).first();
   if (!chip) throw new Error("No encontramos ese chip");
   if (chip.status !== "sin_asignar") throw new Error("Ese chip ya no está libre, elegí otro");
   return chip;
@@ -2431,14 +2434,13 @@ async function apiFidComercioCreate(request, env) {
       await env.DB.batch(statements);
     }
 
-    // Tarjeta del mostrador: un chip impreso (NFC+QR) del stock libre, o uno virtual si no se elige.
-    // Link para redes: siempre virtual (no usa stock).
-    const chipIns = await reclamarChipFidelizacion(env, body.client_id, null, "fidelizacion_inscripcion", "Fidelizacion - link para redes");
-    const chipPun = await reclamarChipFidelizacion(env, body.client_id, chipPunValidado, "fidelizacion_puntos", "Fidelizacion - mostrador");
+    // UNA sola tarjeta: inscribe, da la moneda de bienvenida y suma puntos. Es un chip impreso
+    // (NFC+QR) del stock libre, o uno virtual si no se elige ninguno.
+    const chipPun = await reclamarChipFidelizacion(env, body.client_id, chipPunValidado, "fidelizacion_puntos", "Fidelizacion");
 
     await env.DB.prepare(
-      `UPDATE fidelizacion_comercios SET nfc_inscripcion_chip_id = ?, nfc_puntos_chip_id = ? WHERE id = ?`
-    ).bind(chipIns.id, chipPun.id, comercioId).run();
+      `UPDATE fidelizacion_comercios SET nfc_inscripcion_chip_id = NULL, nfc_puntos_chip_id = ? WHERE id = ?`
+    ).bind(chipPun.id, comercioId).run();
 
     const fechaVencimiento = new Date();
     fechaVencimiento.setMonth(fechaVencimiento.getMonth() + 2);
@@ -2447,7 +2449,7 @@ async function apiFidComercioCreate(request, env) {
        VALUES (?, ?, ?, ?, 'pendiente')`
     ).bind(comercioId, fechaVencimiento.toISOString().slice(0, 7), body.monto_mensual || null, fechaVencimiento.toISOString().slice(0, 10)).run();
 
-    return json({ id: comercioId, slug_inscripcion: chipIns.slug, slug_puntos: chipPun.slug });
+    return json({ id: comercioId, slug_puntos: chipPun.slug, numero_lote: chipPunValidado ? chipPunValidado.numero_lote : null });
   } catch (err) {
     return json({ error: err.message }, 500);
   }
@@ -2674,7 +2676,7 @@ async function handleComercioApi(request, env, path, comercio) {
       horas_entre_sumas: horasEsperaComercio(comercio),
       tope_diario: topeDiarioComercio(comercio),
       estado: (await checkAndUpdateComercioEstado(env, comercio.id)) || comercio.estado,
-      slug_inscripcion: chipIns ? chipIns.slug : null,
+      slug_inscripcion: chipIns ? chipIns.slug : (chipPun ? chipPun.slug : null),
       slug_puntos: chipPun ? chipPun.slug : null,
       dominio: await dominioActivo(env)
     });
