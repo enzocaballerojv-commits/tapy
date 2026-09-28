@@ -485,13 +485,13 @@
     <div class="field">
       <label>Máximo de monedas por día, por cliente</label>
       <select id="fidNuevoTopeDiario">
-        <option value="1" selected>1 por día (recomendado)</option>
+        <option value="0" selected>Sin límite (recomendado: el encargado controla con los avisos)</option>
+        <option value="1">1 por día</option>
         <option value="2">2 por día</option>
         <option value="3">3 por día</option>
         <option value="4">4 por día</option>
         <option value="5">5 por día</option>
         <option value="10">10 por día</option>
-        <option value="0">Sin límite (ej: bares)</option>
       </select>
     </div>
     <div class="field">
@@ -552,13 +552,13 @@
     <div class="field">
       <label>Máximo de monedas por día, por cliente</label>
       <select id="fidConfigTopeDiario">
-        <option value="1">1 por día (recomendado)</option>
+        <option value="0">Sin límite (recomendado)</option>
+        <option value="1">1 por día</option>
         <option value="2">2 por día</option>
         <option value="3">3 por día</option>
         <option value="4">4 por día</option>
         <option value="5">5 por día</option>
         <option value="10">10 por día</option>
-        <option value="0">Sin límite (ej: bares)</option>
       </select>
     </div>
     <div class="field">
@@ -1366,7 +1366,7 @@ function resetFidForm(){
   document.getElementById('fidNuevoMonedas').value = 10;
   document.getElementById('fidNuevoHorasEntreSumas').value = '4';
   document.getElementById('fidNuevoValidez').value = '90';
-  document.getElementById('fidNuevoTopeDiario').value = '1';
+  document.getElementById('fidNuevoTopeDiario').value = '0';
   document.getElementById('fidNuevoMonto').value = '';
 }
 function openFidelizacionModal(){
