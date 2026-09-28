@@ -33,6 +33,9 @@
   .vence{font-size:12px;border-radius:10px;padding:9px 11px;line-height:1.4;}
   .vence.suave{background:#F4F6F9;color:#5B6472;}
   .vence.alerta{background:#FFF1E6;color:#B4501A;font-weight:700;}
+  .adv{font-size:12.5px;border-radius:10px;padding:10px 12px;line-height:1.45;background:#FDECEC;color:#9B2C2C;font-weight:600;}
+  .adv.bloq{background:#2B1111;color:#FFD6D6;}
+  .adv b{display:block;font-size:13.5px;margin-bottom:2px;}
   .ladder{display:flex;flex-direction:column;gap:0;}
   .ladder-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #F0F2F5;}
   .ladder-row:last-child{border-bottom:none;}
@@ -181,6 +184,7 @@
       </div>
     </div>
 
+    <div class="adv" id="advBox" style="display:none;"></div>
     <div class="vence" id="venceBox" style="display:none;"></div>
 
     <div>
@@ -234,6 +238,9 @@
 
 <script>
 const SLUG = new URLSearchParams(window.location.search).get('c') || '';
+// Pase de este toque: lo genera el servidor cada vez que se toca o escanea la tarjeta, vale una sola vez.
+const PASE = new URLSearchParams(window.location.search).get('v') || '';
+const VIA = new URLSearchParams(window.location.search).get('s') === 'qr' ? 'qr' : 'nfc';
 const STATE = { info: null, modo: 'buscar' };
 const COLORES = ['#FF7A29','#2FAE66','#FFD166','#4C8DFF','#FFFFFF','#FF5C8A'];
 
@@ -277,7 +284,7 @@ async function iniciar(forzarSuma){
   if(!forzarSuma && esRecargaOAtras()){ await soloVer(); return; }
   try{
     const res = await fetch('/api/public/fidelizacion/sumar', {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ slug: SLUG })
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ slug: SLUG, v: PASE, via: VIA })
     });
     const data = await res.json();
     if(!res.ok){
@@ -340,7 +347,7 @@ async function enviarIdentify(){
   try{
     const res = await fetch('/api/public/fidelizacion/inscribir', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ slug: SLUG, nombre, whatsapp, acepta })
+      body: JSON.stringify({ slug: SLUG, nombre, whatsapp, acepta, v: PASE, via: VIA })
     });
     const data = await res.json();
     if(!res.ok){
@@ -370,6 +377,15 @@ function mostrarResultado(data){
   const proximo = textoPremio(data.premio_nivel_actual);
   plusOne.style.display = data.sumo_moneda ? 'flex' : 'none';
 
+  document.getElementById('coinCircle').style.background = data.bloqueado ? '#5B6472' : '#FF7A29';
+  if(data.bloqueado){
+    titleTxt.textContent = 'Tu tarjeta está bloqueada';
+    subTxt.textContent = 'Recibiste 2 advertencias por sumar monedas sin estar en el local. Si querés hablarlo, acercate al local.';
+    renderTarjeta(data);
+    showScreen('resultScreen');
+    return;
+  }
+
   // "Nivel completo" va ANTES que "sumo moneda": en el toque que completa el nivel llegan las
   // dos cosas juntas, y la que manda es la celebracion grande del premio.
   if(data.nivel_completo || data.pendiente_canje){
@@ -396,6 +412,12 @@ function mostrarResultado(data){
     subTxt.textContent = data.minutos_para_sumar
       ? `Podés volver a sumar en ${formatoEspera(data.minutos_para_sumar)}.`
       : 'Volvé a tocar la tarjeta en tu próxima visita.';
+  } else if(data.sin_visita){
+    titleTxt.textContent = `Hola, ${data.nombre}`;
+    subTxt.textContent = 'Para sumar tu moneda, tocá o escaneá la tarjeta del mostrador del local. Cada toque vale una sola moneda.';
+  } else if(data.visita_usada){
+    titleTxt.textContent = 'Este toque ya se usó';
+    subTxt.textContent = 'Cada toque de la tarjeta vale una sola moneda. Para sumar la tuya, tocá o escaneá la tarjeta del mostrador.';
   } else if(data.solo_ver){
     titleTxt.textContent = `Hola, ${data.nombre}`;
     subTxt.textContent = 'Esta es tu tarjeta. Para sumar otra moneda, tocá o escaneá la tarjeta del mostrador en tu próxima compra.';
@@ -433,6 +455,14 @@ function renderTarjeta(data){
   document.getElementById('premioLabelTxt').textContent = data.pendiente_canje ? 'Tu premio te espera' : 'Próximo premio';
   document.getElementById('premioTxt').textContent = textoPremio(data.premio_nivel_actual);
 
+  const advBox = document.getElementById('advBox');
+  if(data.bloqueado){
+    advBox.style.display = 'block'; advBox.className = 'adv bloq';
+    advBox.innerHTML = '<b>Tarjeta bloqueada</b>Recibiste 2 advertencias por monedas sumadas sin estar en el local. Para hablarlo, acercate al local.';
+  } else if(data.advertencias > 0){
+    advBox.style.display = 'block'; advBox.className = 'adv';
+    advBox.innerHTML = `<b>Tenés ${data.advertencias} advertencia de ${data.max_advertencias || 2}</b>Anulamos una moneda que se sumó sin que estuvieras en el local. Las monedas se suman solo tocando o escaneando la tarjeta del mostrador al comprar. Con la próxima advertencia, tu tarjeta se bloquea.`;
+  } else advBox.style.display = 'none';
   const vence = document.getElementById('venceBox');
   if(data.vence_en_dias !== null && data.vence_en_dias !== undefined){
     vence.style.display = 'block';

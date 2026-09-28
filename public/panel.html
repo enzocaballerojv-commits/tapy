@@ -512,14 +512,10 @@
       <input type="number" id="fidNuevoMonto" placeholder="Ej: 50000">
     </div>
 
-    <h3 style="font-size:14px;margin-top:14px;">Tarjetas NFC / QR de este comercio</h3>
-    <div class="modal-sub">Elegí 2 chips libres de tu stock (los mismos que ya usás para reseñas) para tener control de tu inventario. Si dejás "Generar automáticamente", el sistema crea 2 tarjetas virtuales nuevas sin usar stock.</div>
+    <h3 style="font-size:14px;margin-top:14px;">Tarjeta del mostrador (NFC + QR)</h3>
+    <div class="modal-sub">Es la única tarjeta física del comercio: los clientes nuevos se inscriben con ella y los que ya son del club suman su moneda. Elegí un chip libre de tu stock, o dejá "Generar automáticamente" para crear una virtual. El link para redes y afiches se crea solo, sin usar stock.</div>
     <div class="field">
-      <label>Tarjeta de inscripción</label>
-      <select id="fidNuevoChipInscripcion"></select>
-    </div>
-    <div class="field">
-      <label>Tarjeta de puntos</label>
+      <label>Chip para el mostrador</label>
       <select id="fidNuevoChipPuntos"></select>
     </div>
 
@@ -802,8 +798,8 @@ function qrActionsHtml(c){
 }
 
 function fidelizacionBadgeHtml(c){
-  if (c.tipo === 'fidelizacion_inscripcion') return '<span class="badge badge-fidelizacion">Fidelización · Inscripción</span>';
-  if (c.tipo === 'fidelizacion_puntos') return '<span class="badge badge-fidelizacion">Fidelización · Puntos</span>';
+  if (c.tipo === 'fidelizacion_inscripcion') return '<span class="badge badge-fidelizacion">Fidelización · Link para redes</span>';
+  if (c.tipo === 'fidelizacion_puntos') return '<span class="badge badge-fidelizacion">Fidelización · Mostrador</span>';
   return '';
 }
 
@@ -1394,7 +1390,6 @@ function refreshFidChipSelects(){
   const libres = STATE.fidChipsLibres || [];
   const opciones = '<option value="">— Generar automáticamente (chip virtual) —</option>' +
     libres.map(c=>`<option value="${c.id}">#${String(c.numero_lote||0).padStart(3,'0')} — ${c.slug}</option>`).join('');
-  document.getElementById('fidNuevoChipInscripcion').innerHTML = opciones;
   document.getElementById('fidNuevoChipPuntos').innerHTML = opciones;
 }
 function renderFidComerciosList(){
@@ -1418,10 +1413,11 @@ function renderFidComerciosList(){
         </div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-secondary btn-sm" ${f.slug_inscripcion?'':'disabled'} onclick="showQrFidComercio(${f.id}, 'IN')">Ver QR inscripción</button>
-        <button class="btn btn-secondary btn-sm" ${f.slug_inscripcion?'':'disabled'} onclick="copiarLinkNfc('${f.slug_inscripcion}')">Copiar link inscripción</button>
-        <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="showQrFidComercio(${f.id}, 'PT')">Ver QR puntos</button>
-        <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="copiarLinkNfc('${f.slug_puntos}')">Copiar link puntos</button>
+        <span class="field-hint" style="width:100%;margin:0;">Tarjeta del mostrador${f.numero_puntos!=null ? ' · chip #'+String(f.numero_puntos).padStart(3,'0') : ' · virtual'}</span>
+        <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="showQrFidComercio(${f.id}, 'PT')">Ver QR del mostrador</button>
+        <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="copiarLinkNfc('${f.slug_puntos}')">Copiar link NFC del mostrador</button>
+        <button class="btn btn-secondary btn-sm" ${f.slug_inscripcion?'':'disabled'} onclick="showQrFidComercio(${f.id}, 'IN')">QR para redes y afiches</button>
+        <button class="btn btn-secondary btn-sm" ${f.slug_inscripcion?'':'disabled'} onclick="copiarLinkNfc('${f.slug_inscripcion}')">Copiar link para redes</button>
         <button class="btn btn-danger btn-sm" onclick="eliminarFidComercio(${f.id})">Quitar de fidelización</button>
       </div>
     </div>
@@ -1438,14 +1434,10 @@ async function submitFidInscribir(){
   const tope_diario = parseInt(document.getElementById('fidNuevoTopeDiario').value, 10);
   const montoRaw = document.getElementById('fidNuevoMonto').value;
   const monto_mensual = montoRaw ? parseFloat(montoRaw) : null;
-  const chipInscripcionId = document.getElementById('fidNuevoChipInscripcion').value;
   const chipPuntosId = document.getElementById('fidNuevoChipPuntos').value;
 
   if(!usuario || !password){ toast('Completá usuario y contraseña del panel del comercio', true); return; }
   if(password.length < 6){ toast('La contraseña del comercio tiene que tener al menos 6 caracteres', true); return; }
-  if(chipInscripcionId && chipPuntosId && chipInscripcionId === chipPuntosId){
-    toast('Elegí 2 tarjetas distintas para inscripción y puntos', true); return;
-  }
 
   let client_id;
   if(modo === 'nuevo'){
@@ -1471,8 +1463,7 @@ async function submitFidInscribir(){
   }
 
   const body = { client_id, usuario, password, niveles, monedas_por_nivel, horas_entre_sumas, validez_dias, tope_diario, monto_mensual };
-  if(chipInscripcionId) body.chip_inscripcion_id = chipInscripcionId;
-  if(chipPuntosId) body.chip_puntos_id = chipPuntosId;
+  if(chipPuntosId) body.chip_id = chipPuntosId;
 
   try{
     await apiFetch('/api/fidelizacion/comercios', {
@@ -1480,7 +1471,7 @@ async function submitFidInscribir(){
       body: JSON.stringify(body)
     });
   }catch(e){ return; }
-  toast('Comercio inscripto en fidelización. Ya se asignaron sus 2 tarjetas.');
+  toast('Comercio inscripto en fidelización. Ya tiene su tarjeta del mostrador y su link para redes.');
   resetFidForm();
   await Promise.all([loadClients(), loadFidComercios(), loadFidChipsLibres()]);
   renderFidComerciosList();
@@ -1491,15 +1482,15 @@ async function submitFidInscribir(){
 function showQrFidComercio(id, tipo){
   const f = STATE.fidComercios.find(x=>x.id===id);
   if(!f) return;
-  if(tipo === 'IN') showQrFid(f.slug_inscripcion, 'Tarjeta de inscripción — ' + (f.client_name||''), `fid-${f.id}-inscripcion`, 'IN');
-  else showQrFid(f.slug_puntos, 'Tarjeta de puntos — ' + (f.client_name||''), `fid-${f.id}-puntos`, 'PT');
+  if(tipo === 'IN') showQrFid(f.slug_inscripcion, 'Link para redes y afiches — ' + (f.client_name||''), `fid-${f.id}-redes`, 'IN');
+  else showQrFid(f.slug_puntos, 'Tarjeta del mostrador — ' + (f.client_name||''), `fid-${f.id}-mostrador`, 'PT');
 }
 async function eliminarFidComercio(id){
   const fc = STATE.fidComercios.find(x=>x.id===id);
   const nombre = fc ? fc.client_name : 'este comercio';
-  if(!confirm(`¿Quitar a "${nombre}" de Fidelización? Se borran sus clientes, premios y cobros de este programa (la empresa en sí no se borra). Las 2 tarjetas NFC/QR vuelven a tu stock libre para reasignar.`)) return;
+  if(!confirm(`¿Quitar a "${nombre}" de Fidelización? Se borran sus clientes, premios y cobros de este programa (la empresa en sí no se borra). Su tarjeta del mostrador (si es un chip impreso) vuelve a tu stock libre para reasignar.`)) return;
   try{ await apiFetch(`/api/fidelizacion/comercios/${id}`, {method:'DELETE'}); }catch(e){ return; }
-  toast('Comercio quitado de fidelización. Sus 2 tarjetas volvieron a stock.');
+  toast('Comercio quitado de fidelización. Su chip volvió a tu stock.');
   await Promise.all([loadFidComercios(), loadFidChipsLibres(), loadChips()]);
   renderFidComerciosList();
   refreshFidClientSelect();
@@ -1621,7 +1612,7 @@ async function openFidClientesModal(comercioId){
     <div class="fid-cli-wrap"><table class="fid-cli-table">
       <thead><tr><th>Cliente</th><th>WhatsApp</th><th>Nivel</th><th>Monedas</th><th>Visitas</th><th>Última visita</th><th>Desde</th></tr></thead>
       <tbody>${lista.map(c=>`<tr>
-        <td><b>${escHtml(c.nombre)}</b>${c.pendiente_canje?' <span class="cobro-badge cobro-badge-solicitado">premio</span>':''}</td>
+        <td><b>${escHtml(c.nombre)}</b>${c.pendiente_canje?' <span class="cobro-badge cobro-badge-solicitado">premio</span>':''}${c.bloqueado?' <span class="cobro-badge cobro-badge-vencido_suspendido">bloqueado</span>':(c.advertencias>0?` <span class="cobro-badge cobro-badge-vencido_suspendido">${c.advertencias} advertencia</span>`:'')}</td>
         <td>${c.whatsapp ? escHtml(String(c.whatsapp).length===9 ? `0${c.whatsapp.slice(0,3)} ${c.whatsapp.slice(3,6)} ${c.whatsapp.slice(6)}` : '0'+c.whatsapp) : '—'}</td>
         <td>${c.nivel_actual}${c.vueltas_completadas?` (vuelta ${c.vueltas_completadas+1})`:''}</td>
         <td>${c.monedas_actuales}</td>

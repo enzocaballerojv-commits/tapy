@@ -33,6 +33,9 @@
   .vence{font-size:12px;border-radius:10px;padding:9px 11px;line-height:1.4;}
   .vence.suave{background:#F4F6F9;color:#5B6472;}
   .vence.alerta{background:#FFF1E6;color:#B4501A;font-weight:700;}
+  .adv{font-size:12.5px;border-radius:10px;padding:10px 12px;line-height:1.45;background:#FDECEC;color:#9B2C2C;font-weight:600;}
+  .adv.bloq{background:#2B1111;color:#FFD6D6;}
+  .adv b{display:block;font-size:13.5px;margin-bottom:2px;}
   .ladder{display:flex;flex-direction:column;}
   .ladder-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #F0F2F5;}
   .ladder-row:last-child{border-bottom:none;}
@@ -226,6 +229,7 @@
         <div style="font-size:13px;color:#5B6472;" id="premioTxt">&nbsp;</div>
       </div>
     </div>
+    <div class="adv" id="advBox" style="display:none;"></div>
     <div class="vence" id="venceBox" style="display:none;"></div>
     <div>
       <div class="sec-title">Tus premios</div>
@@ -418,7 +422,12 @@ function mostrarTarjeta(data, titulo){
   const icon = document.getElementById('cardBigIcon');
   const titleTxt = document.getElementById('cardTitleTxt');
   const subTxt = document.getElementById('cardSubTxt');
-  if(data.pendiente_canje){
+  if(data.bloqueado){
+    icon.style.background = '#5B6472';
+    icon.innerHTML = ICONO_MONEDA;
+    titleTxt.textContent = 'Tu tarjeta está bloqueada';
+    subTxt.textContent = 'Recibiste 2 advertencias por sumar monedas sin estar en el local. Si querés hablarlo, acercate al local.';
+  } else if(data.pendiente_canje){
     icon.style.background = '#FFD166';
     icon.innerHTML = ICONO_TROFEO;
     titleTxt.textContent = '¡Tu premio te espera!';
@@ -455,6 +464,14 @@ function renderTarjeta(data){
     : `Te falta${faltan===1?'':'n'} ${faltan} moneda${faltan===1?'':'s'} para tu próximo premio.`;
   document.getElementById('premioLabelTxt').textContent = data.pendiente_canje ? 'Tu premio te espera' : 'Próximo premio';
   document.getElementById('premioTxt').textContent = textoPremio(data.premio_nivel_actual);
+  const advBox = document.getElementById('advBox');
+  if(data.bloqueado){
+    advBox.style.display = 'block'; advBox.className = 'adv bloq';
+    advBox.innerHTML = '<b>Tarjeta bloqueada</b>Recibiste 2 advertencias por monedas sumadas sin estar en el local. Para hablarlo, acercate al local.';
+  } else if(data.advertencias > 0){
+    advBox.style.display = 'block'; advBox.className = 'adv';
+    advBox.innerHTML = `<b>Tenés ${data.advertencias} advertencia de ${data.max_advertencias || 2}</b>Anulamos una moneda que se sumó sin que estuvieras en el local. Las monedas se suman solo tocando o escaneando la tarjeta del mostrador al comprar. Con la próxima advertencia, tu tarjeta se bloquea.`;
+  } else advBox.style.display = 'none';
   const vence = document.getElementById('venceBox');
   if(data.vence_en_dias !== null && data.vence_en_dias !== undefined){
     vence.style.display = 'block';

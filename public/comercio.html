@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Panel de Fidelización — Tapy</title>
+<link rel="manifest" href="/comercio.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="/tapy-icon-192.png">
+<meta name="theme-color" content="#0d2f6e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tapy Club">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
   :root{
@@ -164,6 +171,32 @@
   .toast.show{display:block;}
   .toast.error{background:var(--red);}
 
+  .badge-bloqueado{background:#2b1111;color:#ffd6d6;}
+  .badge-advertencia{background:#fdecec;color:var(--red);}
+  .avisos-card{background:white;border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:22px;}
+  .avisos-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:10px;}
+  .avisos-top h2{display:flex;align-items:center;gap:8px;}
+  .en-vivo{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(26,158,107,.5);animation:latido 1.8s infinite;}
+  @keyframes latido{0%{box-shadow:0 0 0 0 rgba(26,158,107,.5);}70%{box-shadow:0 0 0 8px rgba(26,158,107,0);}100%{box-shadow:0 0 0 0 rgba(26,158,107,0);}}
+  #avisosEstado{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+  .avisos-ok{font-size:12px;font-weight:700;color:var(--green);background:#e7f8ee;padding:6px 10px;border-radius:20px;}
+  #actividadList{border:1px solid var(--line);border-radius:12px;max-height:320px;overflow-y:auto;}
+  .act-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px;}
+  .act-row:last-child{border-bottom:none;}
+  .act-hora{font-weight:800;color:var(--navy);font-size:12.5px;min-width:44px;}
+  .act-txt{flex:1;min-width:0;}
+  .act-acc{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end;}
+  .act-nueva{animation:resalte 2.4s ease-out;}
+  @keyframes resalte{0%{background:#fff2e0;}100%{background:transparent;}}
+  .act-anulada .act-txt{opacity:.55;text-decoration:line-through;}
+  .act-vacia{padding:18px 14px;font-size:12.5px;color:var(--muted);text-align:center;}
+  .adv-cliente{display:flex;justify-content:space-between;gap:10px;align-items:baseline;font-size:15px;margin-bottom:6px;}
+  .adv-cliente span{font-size:12.5px;color:var(--muted);}
+  .adv-dato{font-size:13px;color:var(--ink);margin-bottom:4px;}
+  .adv-reglas{background:#fdecec;border:1px solid #f3c6c1;color:#8c2323;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.45;margin-top:12px;}
+  .bloqueo-box{background:#2b1111;color:#ffd6d6;border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.45;margin-bottom:12px;}
+  .bloqueo-box b{color:white;display:block;font-size:14px;margin-bottom:2px;}
+  .hist-adv{margin-left:8px;padding:3px 8px;min-height:26px;font-size:11px;}
   .suspendido-banner{background:#fdecec;border:1px solid #f3c6c1;color:var(--red);border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:16px;font-weight:600;}
 </style>
 </head>
@@ -195,6 +228,17 @@
   <div class="content">
     <div id="suspendidoBanner" class="suspendido-banner" style="display:none;">
       Tu club de fidelidad está desactivado por falta de pago. Tus clientes no pueden sumar monedas ni inscribirse hasta que se regularice. Escribinos a Tapy si ya pagaste.
+    </div>
+
+    <div class="avisos-card" id="avisosCard">
+      <div class="avisos-top">
+        <div>
+          <h2><span class="en-vivo"></span>Actividad de hoy</h2>
+          <div class="subtitle">Cada moneda aparece acá al instante. El encargado del club revisa cada aviso: si alguien sumó sin estar en el local, tocá "Advertir".</div>
+        </div>
+        <div id="avisosEstado"></div>
+      </div>
+      <div id="actividadList"><div class="act-vacia">Cargando...</div></div>
     </div>
 
     <div class="row-between">
@@ -249,6 +293,34 @@
     <div class="modal-actions">
       <button class="btn btn-danger" onclick="eliminarCliente()">Eliminar cliente</button>
       <button class="btn btn-secondary" onclick="closeModal('modalCliente')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Advertir una moneda -->
+<div class="modal-overlay" id="modalAdvertir">
+  <div class="modal">
+    <h3>¿Este cliente estaba en el local?</h3>
+    <div class="modal-sub">Si nadie del local le cobró en ese momento, la moneda se sumó de forma indebida.</div>
+    <div id="advInfo"></div>
+    <div class="adv-reglas" id="advReglas"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modalAdvertir')">Sí estaba, todo bien</button>
+      <button class="btn btn-danger" id="advBtn" onclick="confirmarAdvertencia()">No estaba: dar advertencia</button>
+    </div>
+  </div>
+</div>
+
+<!-- Avisos en iPhone -->
+<div class="modal-overlay" id="modalIphone">
+  <div class="modal">
+    <h3>Avisos en iPhone</h3>
+    <div class="modal-sub">En iPhone los avisos funcionan cuando el panel está en tu pantalla de inicio, como una app (iOS 16.4 o más nuevo).</div>
+    <div class="adv-dato"><b>1.</b> Abrí este panel en Safari y tocá el botón Compartir (el cuadrado con la flecha).</div>
+    <div class="adv-dato"><b>2.</b> Elegí "Agregar a inicio" y confirmá.</div>
+    <div class="adv-dato"><b>3.</b> Abrí "Tapy Club" desde ese ícono nuevo, entrá con tu usuario y tocá "Activar avisos en este celular".</div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="closeModal('modalIphone')">Entendido</button>
     </div>
   </div>
 </div>
@@ -358,7 +430,7 @@
     <div class="modal-sub">Descargá tus QR para imprimirlos o compartirlos.</div>
     <div class="tarjeta-box">
       <h4>Tarjeta del mostrador</h4>
-      <p>Tus clientes la tocan con el celular o escanean el QR en cada compra para sumar su moneda. Si es su primera vez, ahí mismo se suman al club.</p>
+      <p>Tus clientes la tocan con el celular o escanean el QR en cada compra para sumar su moneda. Si es su primera vez, ahí mismo se suman al club. Cada toque vale una sola moneda: recargar la página o reenviar el link no suma.</p>
       <div class="qr-holder" id="qrPuntos"></div>
       <div class="link-mono" id="linkPuntos"></div>
       <div class="btn-row">
@@ -405,6 +477,17 @@ async function doLogin(){
   }catch(e){ errBox.textContent = 'No se pudo conectar. Revisá tu conexión.'; }
 }
 async function logout(){
+  // Al salir, este celular deja de recibir avisos (por ejemplo, si era de un empleado que ya no está).
+  try{
+    if('serviceWorker' in navigator){
+      const reg = await navigator.serviceWorker.getRegistration('/comercio');
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
+      if(sub){
+        await fetch('/api/comercio/push/desuscribir', jsonOpts('POST', {endpoint: sub.endpoint}));
+        await sub.unsubscribe();
+      }
+    }
+  }catch(e){}
   try{ await fetch('/api/comercio/logout', {method:'POST'}); }catch(e){}
   location.reload();
 }
@@ -423,6 +506,14 @@ async function initApp(){
     return;
   }
   await recargarDatos();
+  iniciarActividad();
+  renderEstadoAvisos();
+  sincronizarAvisos();
+  const tapPedido = tapDeUrl(location.href);
+  if(tapPedido){
+    history.replaceState(null, '', location.pathname);
+    abrirAdvertir(tapPedido);
+  }
 }
 async function recargarDatos(){
   await Promise.all([loadClientes(), loadMetricas(), loadPremios()]);
@@ -497,7 +588,7 @@ function textoUltimaVisita(c){
 }
 function fechaCorta(s){
   const d = parseFecha(s); if(!d) return '—';
-  return d.toLocaleDateString('es-PY', {day:'2-digit', month:'2-digit', year:'numeric'}) + ' ' + d.toLocaleTimeString('es-PY', {hour:'2-digit', minute:'2-digit'});
+  return d.toLocaleDateString('es-PY', {day:'2-digit', month:'2-digit', year:'numeric'}) + ' ' + d.toLocaleTimeString('es-PY', {hour:'2-digit', minute:'2-digit', hourCycle:'h23'});
 }
 function esPorVencer(c){ return c.vence_en_dias !== null && c.vence_en_dias !== undefined && c.vence_en_dias <= 7; }
 function esInactivo(c){ const d = diasDesde(c.ultimo_tap || c.created_at); return d !== null && d > 30; }
@@ -535,9 +626,10 @@ function renderFiltros(){
   const c = STATE.clientes;
   const defs = [
     ['todos','Todos', c.length],
-    ['pendientes','Esperando premio', c.filter(x=>x.pendiente_canje).length],
-    ['vencer','Por vencer', c.filter(esPorVencer).length],
-    ['inactivos','Inactivos +30 días', c.filter(esInactivo).length]
+    ['pendientes','Esperando premio', c.filter(x=>x.pendiente_canje && !x.bloqueado).length],
+    ['vencer','Por vencer', c.filter(x=>esPorVencer(x) && !x.bloqueado).length],
+    ['inactivos','Inactivos +30 días', c.filter(x=>esInactivo(x) && !x.bloqueado).length],
+    ['bloqueados','Bloqueados', c.filter(x=>x.bloqueado).length]
   ];
   document.getElementById('filtroChips').innerHTML = defs.map(([k,l,n]) =>
     `<button class="chip ${STATE.filtro===k?'active':''}" onclick="setFiltro('${k}')">${l}<span class="n">${n}</span></button>`
@@ -547,11 +639,13 @@ function clientesFiltrados(){
   let lista = STATE.clientes.slice();
   if(STATE.filtro === 'pendientes') lista = lista.filter(c=>c.pendiente_canje);
   if(STATE.filtro === 'vencer') lista = lista.filter(esPorVencer).sort((a,b)=>a.vence_en_dias-b.vence_en_dias);
-  if(STATE.filtro === 'inactivos') lista = lista.filter(esInactivo);
+  if(STATE.filtro === 'inactivos') lista = lista.filter(x=>esInactivo(x) && !x.bloqueado);
+  if(STATE.filtro === 'bloqueados') lista = lista.filter(x=>x.bloqueado);
+  if(STATE.filtro === 'pendientes' || STATE.filtro === 'vencer') lista = lista.filter(x=>!x.bloqueado);
   if(STATE.filtro === 'todos'){
     lista.sort((a,b)=>{
-      const pa = a.pendiente_canje ? 0 : (esPorVencer(a) ? 1 : 2);
-      const pb = b.pendiente_canje ? 0 : (esPorVencer(b) ? 1 : 2);
+      const pa = a.bloqueado ? 3 : a.pendiente_canje ? 0 : (esPorVencer(a) ? 1 : 2);
+      const pb = b.bloqueado ? 3 : b.pendiente_canje ? 0 : (esPorVencer(b) ? 1 : 2);
       if(pa !== pb) return pa - pb;
       return (parseFecha(b.ultimo_tap)||0) - (parseFecha(a.ultimo_tap)||0);
     });
@@ -566,6 +660,11 @@ function clientesFiltrados(){
   return lista;
 }
 function estadoBadge(c){
+  if(c.bloqueado) return `<span class="badge badge-bloqueado">Bloqueado</span>`;
+  const adv = c.advertencias > 0 ? ` <span class="badge badge-advertencia">${c.advertencias} advertencia${c.advertencias===1?'':'s'}</span>` : '';
+  return estadoBadgeBase(c) + adv;
+}
+function estadoBadgeBase(c){
   if(c.pendiente_canje) return `<span class="badge badge-pendiente">Esperando premio</span>`;
   if(esPorVencer(c)){
     const d = c.vence_en_dias;
@@ -585,6 +684,7 @@ function progresoHtml(c){
   return `<div class="progress-box"><div class="progress-bar-outer"><div class="progress-bar-inner" style="width:${pct}%;"></div></div><div class="progress-txt">${c.monedas_actuales}/${total} monedas</div></div>`;
 }
 function botonWhatsapp(c, sm){
+  if(c.bloqueado) return `<button class="btn btn-secondary ${sm?'btn-sm':''}" onclick="desbloquearCliente(${c.id})">Desbloquear</button>`;
   const label = c.pendiente_canje ? 'Avisar premio' : (esPorVencer(c) ? (c.aviso_vencimiento_at ? 'Avisar de nuevo' : 'Mandar aviso') : 'WhatsApp');
   return `<button class="btn btn-whatsapp ${sm?'btn-sm':''}" onclick="enviarWhatsapp(${c.id})">${label}</button>`;
 }
@@ -687,6 +787,10 @@ function fechaEnDias(d){
 }
 function mensajeParaCliente(c){
   const negocio = nombreNegocio();
+  if(c.bloqueado){
+    return `Hola ${c.nombre}, te escribimos de *${negocio}*.\n\n`
+      + `Tu tarjeta del club de fidelidad está *bloqueada* porque recibió 2 advertencias por monedas sumadas sin estar en el local. Si querés hablarlo, pasá por el local.`;
+  }
   const total = (STATE.comercio && STATE.comercio.monedas_por_nivel) || 1;
   if(c.pendiente_canje){
     return `¡${c.nombre}, COMPLETASTE tu nivel en *${negocio}*!\n\n`
@@ -760,6 +864,7 @@ async function canjear(clienteId){
     const url = urlWhatsapp(c.whatsapp, msg);
     if(url){
       document.getElementById('msgTitulo').textContent = res.reinicio ? `¡${c.nombre} completó el club!` : '¡Premio entregado!';
+      document.getElementById('msgSub').textContent = 'Mandale este mensaje para que se lleve la mejor experiencia:';
       document.getElementById('msgPreview').textContent = msg;
       document.getElementById('msgLink').href = url;
       document.getElementById('modalMensaje').classList.add('open');
@@ -796,18 +901,27 @@ function renderDetalle(c){
     <div class="det-stat"><b>${c.premios_canjeados||0}</b><span>Premios</span></div>
     <div class="det-stat"><b>${c.vueltas_completadas||0}</b><span>Vueltas</span></div>`;
   document.getElementById('detAcciones').innerHTML =
-    (c.pendiente_canje ? `<button class="btn btn-primary btn-sm" onclick="canjear(${c.id})">Entregar premio</button>` : '')
+    (c.bloqueado ? `<div class="bloqueo-box" style="width:100%;"><b>Tarjeta bloqueada</b>Recibió 2 advertencias por sumar monedas sin estar en el local. No puede sumar ni canjear hasta que la desbloquees.</div>` : '')
+    + (!c.bloqueado && c.advertencias > 0 ? `<div class="adv-reglas" style="width:100%;margin:0 0 4px;">Tiene 1 advertencia de 2. Con la próxima, su tarjeta se bloquea.</div>` : '')
+    + (c.pendiente_canje ? `<button class="btn btn-primary btn-sm" onclick="canjear(${c.id})">Entregar premio</button>` : '')
     + botonWhatsapp(c, true);
+  document.getElementById('detAcciones').style.flexWrap = 'wrap';
+  document.querySelector('#modalCliente .ajuste-box').style.display = c.bloqueado ? 'none' : 'flex';
 }
 function renderHistorial(items){
   if(!items.length){ document.getElementById('detHistorial').innerHTML = '<div class="hist-row"><span class="small">Sin movimientos todavía.</span></div>'; return; }
-  const txt = {tap:'Sumó con la tarjeta', bienvenida:'Moneda de bienvenida', manual:'Corrección manual', vencimiento:'Monedas vencidas', canje:'Retiró su premio'};
+  const txt = {tap:'Sumó con la tarjeta', bienvenida:'Moneda de bienvenida', manual:'Corrección manual', vencimiento:'Monedas vencidas', canje:'Retiró su premio', advertencia:'Advertencia', bloqueo:'Tarjeta bloqueada (2ª advertencia)', desbloqueo:'Tarjeta desbloqueada'};
   document.getElementById('detHistorial').innerHTML = items.map(h => {
     let q, cls;
     if(h.tipo === 'canje'){ q = `Nivel ${h.nivel}`; cls = 'q-canje'; }
+    else if(h.anulado){ q = 'Anulada'; cls = 'q-minus'; }
     else if(h.delta > 0){ q = `+${h.delta}`; cls = 'q-plus'; }
+    else if(h.delta === 0){ q = '·'; cls = 'q-minus'; }
     else { q = `${h.delta}`; cls = 'q-minus'; }
-    return `<div class="hist-row"><span>${txt[h.tipo]||h.tipo}<div class="small">${fechaCorta(h.ts)}</div></span><span class="q ${cls}">${q}</span></div>`;
+    let etiqueta = txt[h.tipo] || h.tipo;
+    if(h.tipo === 'tap' && h.via) etiqueta = h.via === 'qr' ? 'Sumó escaneando el QR' : 'Sumó tocando la tarjeta';
+    const adv = h.se_puede_advertir ? `<button class="btn btn-danger btn-sm hist-adv" onclick="closeModal('modalCliente');abrirAdvertir(${Number(h.id)})">Advertir</button>` : '';
+    return `<div class="hist-row"><span>${etiqueta}<div class="small">${fechaCorta(h.ts)}</div></span><span class="q ${cls}">${q}${adv}</span></div>`;
   }).join('');
 }
 async function ajustarMonedas(delta){
@@ -852,7 +966,8 @@ function exportarClientes(){
   };
   const filas = [['Nombre','WhatsApp','Nivel','Monedas','Vueltas completadas','Visitas','Premios retirados','Última visita','En el club desde','Estado']];
   STATE.clientes.forEach(c => {
-    const estado = c.pendiente_canje ? 'Esperando premio' : (esPorVencer(c) ? 'Monedas por vencer' : (esInactivo(c) ? 'Inactivo' : 'Activo'));
+    const estado = c.bloqueado ? 'Bloqueado' : c.pendiente_canje ? 'Esperando premio' : (esPorVencer(c) ? 'Monedas por vencer' : (esInactivo(c) ? 'Inactivo' : 'Activo'))
+      + (!c.bloqueado && c.advertencias > 0 ? ` (${c.advertencias} advertencia)` : '');
     const w = c.whatsapp || '';
     filas.push([c.nombre, formatoWa(w), c.nivel_actual, c.monedas_actuales, c.vueltas_completadas||0, c.visitas||0, c.premios_canjeados||0,
       c.ultimo_tap ? fechaCorta(c.ultimo_tap) : 'Nunca', fechaCorta(c.created_at).split(' ')[0], estado]);
@@ -1025,6 +1140,278 @@ async function copiarTexto(t){
 }
 
 // ---------- MODALES ----------
+
+
+// ---------- ACTIVIDAD EN VIVO + ADVERTENCIAS ----------
+// Cada moneda que se suma aparece aca al instante (y como aviso en el celular, si se activo).
+// Si el encargado no le cobro a nadie en ese momento, toca "Advertir".
+
+var ACT = { ultimoId: 0, lista: [], timer: null, cargada: false };
+
+function horaCorta(ts){
+  const d = parseFecha(ts);
+  return d ? d.toLocaleTimeString('es-PY', {hour:'2-digit', minute:'2-digit', hourCycle:'h23'}) : '';
+}
+function textoVia(v){ return v === 'qr' ? 'escaneó el QR' : 'tocó la tarjeta'; }
+function filaActividad(a, nueva){
+  const total = (STATE.comercio && STATE.comercio.monedas_por_nivel) || 1;
+  let que, detalle;
+  if(a.origen === 'bienvenida'){ que = 'se sumó al club'; detalle = 'Moneda de bienvenida'; }
+  else { que = 'sumó una moneda'; detalle = `${textoVia(a.via)}`; }
+  let estado = '';
+  if(a.anulado) estado = '<span class="badge badge-vence">Advertida</span>';
+  else if(a.bloqueado) estado = '<span class="badge badge-bloqueado">Bloqueado</span>';
+  const boton = a.se_puede_advertir
+    ? `<button class="btn btn-danger btn-sm" onclick="abrirAdvertir(${a.id})">Advertir</button>` : '';
+  return `<div class="act-row ${nueva?'act-nueva':''} ${a.anulado?'act-anulada':''}">
+    <div class="act-hora">${horaCorta(a.ts)}</div>
+    <div class="act-txt"><b>${escapeHtml(a.nombre)}</b> ${que}<div class="small">${escapeHtml(detalle)}${a.advertencias>0 && !a.bloqueado ? ` · ${a.advertencias} advertencia${a.advertencias===1?'':'s'}` : ''}</div></div>
+    <div class="act-acc">${estado}${boton}</div>
+  </div>`;
+}
+function renderActividad(nuevosIds){
+  const box = document.getElementById('actividadList');
+  if(!ACT.lista.length){
+    box.innerHTML = '<div class="act-vacia">Todavía nadie sumó monedas hoy. Cuando alguien toque la tarjeta del mostrador, aparece acá al instante.</div>';
+    return;
+  }
+  const nuevos = new Set(nuevosIds || []);
+  box.innerHTML = ACT.lista.slice(0, 30).map(a => filaActividad(a, nuevos.has(a.id))).join('');
+}
+async function cargarActividad(completa){
+  if(STATE.comercio && STATE.comercio.estado === 'suspendido') return;
+  try{
+    const desde = completa ? 0 : ACT.ultimoId;
+    const res = await fetch('/api/comercio/actividad?desde=' + desde);
+    if(res.status === 401){ location.reload(); return; }
+    if(!res.ok) return;
+    const data = await res.json();
+    const items = data.actividad || [];
+    if(completa){
+      ACT.lista = items;
+    } else if(items.length){
+      const ids = new Set(items.map(x=>x.id));
+      ACT.lista = items.concat(ACT.lista.filter(x=>!ids.has(x.id)));
+    }
+    const maxId = ACT.lista.reduce((m,x)=>Math.max(m,x.id), 0);
+    const nuevos = (!completa || ACT.cargada) ? items.filter(x=>x.id > ACT.ultimoId).map(x=>x.id) : [];
+    const huboNuevos = ACT.cargada && nuevos.length > 0;
+    ACT.ultimoId = Math.max(ACT.ultimoId, maxId);
+    ACT.cargada = true;
+    renderActividad(nuevos);
+    if(huboNuevos){
+      const a = ACT.lista.find(x=>x.id === nuevos[0]);
+      sonarAviso();
+      if(a) toast(a.origen === 'bienvenida' ? `${a.nombre} se sumó al club` : `${a.nombre} sumó una moneda`);
+      recargarDatos();
+    }
+  }catch(e){}
+}
+function iniciarActividad(){
+  cargarActividad(true);
+  clearInterval(ACT.timer);
+  ACT.timer = setInterval(()=>{ if(document.visibilityState === 'visible') cargarActividad(false); }, 12000);
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') cargarActividad(true); });
+}
+function sonarAviso(){
+  try{
+    const C = window.AudioContext || window.webkitAudioContext;
+    if(C){
+      STATE.audio = STATE.audio || new C();
+      const ctx = STATE.audio;
+      if(ctx.state === 'suspended') ctx.resume();
+      [0, 0.18].forEach((t, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = i ? 1175 : 880;
+        g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+        g.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.28);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.3);
+      });
+    }
+  }catch(e){}
+  if(navigator.vibrate) navigator.vibrate([90, 60, 90]);
+}
+
+async function abrirAdvertir(tapId){
+  let a;
+  try{ a = await apiFetch('/api/comercio/taps/' + Number(tapId)); }catch(e){ return; }
+  STATE.tapAdvertir = a;
+  const total = (STATE.comercio && STATE.comercio.monedas_por_nivel) || 1;
+  const fecha = fechaCorta(a.ts);
+  document.getElementById('advInfo').innerHTML = `
+    <div class="adv-cliente"><b>${escapeHtml(a.nombre)}</b><span>${escapeHtml(formatoWa(a.whatsapp)||'')}</span></div>
+    <div class="adv-dato">${a.origen === 'bienvenida' ? 'Se sumó al club' : 'Sumó una moneda: ' + textoVia(a.via)} el ${escapeHtml(fecha)}</div>
+    <div class="adv-dato">Tiene ${a.monedas_actuales} de ${total} monedas · ${a.advertencias} advertencia${a.advertencias===1?'':'s'} de 2</div>`;
+  const btn = document.getElementById('advBtn');
+  const reglas = document.getElementById('advReglas');
+  if(a.bloqueado){
+    reglas.textContent = 'La tarjeta de este cliente ya está bloqueada.';
+    btn.style.display = 'none';
+  } else if(a.anulado){
+    reglas.textContent = 'Esta moneda ya fue advertida y anulada.';
+    btn.style.display = 'none';
+  } else if(!a.se_puede_advertir){
+    reglas.textContent = 'Las monedas de bienvenida no se advierten: cualquiera puede sumarse al club desde tu link.';
+    btn.style.display = 'none';
+  } else {
+    reglas.textContent = a.advertencias >= 1
+      ? 'Ya tiene 1 advertencia. Si le das esta segunda, su tarjeta se bloquea: pierde todas sus monedas y queda en tu lista de bloqueados.'
+      : 'Si le das una advertencia, esta moneda se anula y el cliente lo ve en su tarjeta. Con la 2ª advertencia la tarjeta se bloquea.';
+    btn.style.display = '';
+    btn.textContent = a.advertencias >= 1 ? 'No estaba: bloquear tarjeta' : 'No estaba: dar advertencia';
+  }
+  document.getElementById('modalAdvertir').classList.add('open');
+}
+async function confirmarAdvertencia(){
+  const a = STATE.tapAdvertir; if(!a) return;
+  if(STATE.ocupado) return;
+  STATE.ocupado = true;
+  const btn = document.getElementById('advBtn'); btn.disabled = true;
+  try{
+    const r = await apiFetch(`/api/comercio/taps/${a.id}/advertir`, {method:'POST'});
+    closeModal('modalAdvertir');
+    toast(r.bloqueado ? `Tarjeta de ${r.nombre} bloqueada` : `Advertencia dada a ${r.nombre}. La moneda se anuló.`);
+    await Promise.all([cargarActividad(true), recargarDatos()]);
+    const negocio = nombreNegocio();
+    const msg = r.bloqueado
+      ? `Hola ${r.nombre}, te escribimos de *${negocio}*.\n\n`
+        + `Tu tarjeta del club de fidelidad quedó *bloqueada* porque se registraron monedas sumadas sin que estuvieras en el local, y ya tenías una advertencia.\n\n`
+        + `Las monedas se suman solo tocando o escaneando la tarjeta del mostrador al momento de tu compra. Si creés que es un error, pasá por el local y lo hablamos.`
+      : `Hola ${r.nombre}, te escribimos de *${negocio}*.\n\n`
+        + `Registramos una moneda sumada en tu tarjeta del club sin que estuvieras en el local, así que la anulamos y te dejamos una *advertencia (1 de 2)*.\n\n`
+        + `Recordá que las monedas se suman solo tocando o escaneando la tarjeta del mostrador al momento de tu compra. Con una segunda advertencia, la tarjeta se bloquea.\n\n`
+        + `¡Gracias por entender y te esperamos pronto!`;
+    const url = urlWhatsapp(r.whatsapp, msg);
+    if(url){
+      document.getElementById('msgTitulo').textContent = r.bloqueado ? 'Tarjeta bloqueada' : 'Advertencia registrada';
+      document.getElementById('msgSub').textContent = 'Si querés, avisale por WhatsApp:';
+      document.getElementById('msgPreview').textContent = msg;
+      document.getElementById('msgLink').href = url;
+      document.getElementById('modalMensaje').classList.add('open');
+    }
+  }catch(e){
+  }finally{
+    STATE.ocupado = false; btn.disabled = false;
+  }
+}
+async function desbloquearCliente(clienteId){
+  const c = STATE.clientes.find(x => x.id === clienteId);
+  if(!c) return;
+  if(!confirm(`¿Desbloquear la tarjeta de ${c.nombre}? Vuelve a poder sumar monedas, arranca de cero y sin advertencias.`)) return;
+  try{
+    await apiFetch(`/api/comercio/clientes/${clienteId}/desbloquear`, {method:'POST'});
+    toast(`Tarjeta de ${c.nombre} desbloqueada`);
+    await recargarDatos();
+    const nuevo = STATE.clientes.find(x => x.id === clienteId);
+    if(nuevo && document.getElementById('modalCliente').classList.contains('open')) openCliente(clienteId);
+  }catch(e){}
+}
+
+// ---------- AVISOS EN EL CELULAR ----------
+
+function soportaAvisos(){ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }
+function esIphone(){ return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+function esAppInstalada(){ return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; }
+function bytesDeB64u(s){
+  let t = String(s).replace(/-/g,'+').replace(/_/g,'/'); while(t.length % 4) t += '=';
+  const bin = atob(t); const out = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+async function registroAvisos(){
+  if(!soportaAvisos()) return null;
+  try{ return await navigator.serviceWorker.register('/sw-comercio.js', {scope:'/comercio'}); }catch(e){ return null; }
+}
+async function renderEstadoAvisos(){
+  const box = document.getElementById('avisosEstado');
+  if(!box) return;
+  if(!soportaAvisos()){
+    box.innerHTML = esIphone() && !esAppInstalada()
+      ? `<button class="btn btn-primary btn-sm" onclick="document.getElementById('modalIphone').classList.add('open')">Activar avisos en este iPhone</button>`
+      : `<span class="small">Este navegador no permite avisos. Dejá este panel abierto: cada moneda suena y aparece acá.</span>`;
+    return;
+  }
+  if(Notification.permission === 'denied'){
+    box.innerHTML = `<span class="small">Bloqueaste los avisos para esta página. Activalos desde los ajustes del navegador (permisos del sitio) y volvé a entrar.</span>`;
+    return;
+  }
+  let sub = null;
+  try{
+    const reg = await navigator.serviceWorker.getRegistration('/comercio');
+    sub = reg ? await reg.pushManager.getSubscription() : null;
+  }catch(e){}
+  if(sub && Notification.permission === 'granted'){
+    box.innerHTML = `<span class="avisos-ok">Avisos activados en este celular</span>
+      <button class="btn btn-secondary btn-sm" onclick="probarAvisos()">Probar</button>
+      <button class="btn btn-secondary btn-sm" onclick="desactivarAvisos()">Desactivar</button>`;
+  } else {
+    box.innerHTML = `<button class="btn btn-primary btn-sm" onclick="activarAvisos()">Activar avisos en este celular</button>`;
+  }
+}
+async function activarAvisos(){
+  if(!soportaAvisos()){ renderEstadoAvisos(); return; }
+  let permiso;
+  try{ permiso = await Notification.requestPermission(); }catch(e){ permiso = Notification.permission; }
+  if(permiso !== 'granted'){ toast('Para recibir los avisos tenés que tocar "Permitir"', true); renderEstadoAvisos(); return; }
+  try{
+    await registroAvisos();
+    const reg = await navigator.serviceWorker.ready;
+    const { publica } = await apiFetch('/api/comercio/push/clave');
+    const vieja = await reg.pushManager.getSubscription();
+    if(vieja) await vieja.unsubscribe();
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytesDeB64u(publica) });
+    await apiFetch('/api/comercio/push/suscribir', jsonOpts('POST', sub.toJSON()));
+    toast('Listo: este celular va a recibir un aviso cada vez que alguien sume una moneda.');
+  }catch(e){
+    if(!e.status) toast('No se pudo activar los avisos en este celular. Probá de nuevo.', true);
+  }
+  renderEstadoAvisos();
+}
+async function desactivarAvisos(){
+  try{
+    const reg = await navigator.serviceWorker.getRegistration('/comercio');
+    const sub = reg ? await reg.pushManager.getSubscription() : null;
+    if(sub){
+      await apiFetch('/api/comercio/push/desuscribir', jsonOpts('POST', {endpoint: sub.endpoint}));
+      await sub.unsubscribe();
+    }
+    toast('Avisos desactivados en este celular');
+  }catch(e){}
+  renderEstadoAvisos();
+}
+async function probarAvisos(){
+  try{
+    const r = await apiFetch('/api/comercio/push/probar', {method:'POST'});
+    if(r.enviados > 0) toast(`Aviso de prueba enviado a ${r.enviados} celular${r.enviados===1?'':'es'}`);
+    else toast('No se pudo enviar el aviso. Tocá "Desactivar" y activalo de nuevo.', true);
+  }catch(e){}
+}
+// Si el celular ya tenia los avisos activos, se vuelve a registrar en silencio (por si se reinicio el sistema).
+async function sincronizarAvisos(){
+  if(!soportaAvisos() || Notification.permission !== 'granted') return;
+  try{
+    const reg = await registroAvisos();
+    const sub = reg ? await reg.pushManager.getSubscription() : null;
+    if(sub) await fetch('/api/comercio/push/suscribir', jsonOpts('POST', sub.toJSON()));
+  }catch(e){}
+}
+function tapDeUrl(u){
+  try{ const t = new URL(u, location.origin).searchParams.get('tap'); return t && /^\d+$/.test(t) ? Number(t) : null; }catch(e){ return null; }
+}
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    const d = e.data || {};
+    // Todavia en la pantalla de ingreso: no se toca nada (si tocaron un aviso, se abre despues de entrar).
+    if(!ACT.cargada){
+      if(d.tipo === 'abrir' && tapDeUrl(d.url)) location.href = d.url;
+      return;
+    }
+    if(d.tipo === 'actividad') cargarActividad(false);
+    if(d.tipo === 'abrir'){ const id = tapDeUrl(d.url); cargarActividad(false); if(id) abrirAdvertir(id); }
+  });
+}
 
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 document.addEventListener('click', function(e){
