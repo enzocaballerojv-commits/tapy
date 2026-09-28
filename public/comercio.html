@@ -1184,7 +1184,10 @@ async function cargarActividad(completa){
     const desde = completa ? 0 : ACT.ultimoId;
     const res = await fetch('/api/comercio/actividad?desde=' + desde);
     if(res.status === 401){ location.reload(); return; }
-    if(!res.ok) return;
+    if(!res.ok){
+      if(!ACT.cargada) document.getElementById('actividadList').innerHTML = '<div class="act-vacia">No se pudo cargar la actividad. Probá recargar la página en un momento.</div>';
+      return;
+    }
     const data = await res.json();
     const items = data.actividad || [];
     if(completa){
@@ -1205,7 +1208,9 @@ async function cargarActividad(completa){
       if(a) toast(a.origen === 'bienvenida' ? `${a.nombre} se sumó al club` : `${a.nombre} sumó una moneda`);
       recargarDatos();
     }
-  }catch(e){}
+  }catch(e){
+    if(!ACT.cargada) document.getElementById('actividadList').innerHTML = '<div class="act-vacia">No se pudo cargar la actividad. Revisá tu conexión.</div>';
+  }
 }
 function iniciarActividad(){
   cargarActividad(true);
@@ -1356,8 +1361,13 @@ async function activarAvisos(){
   try{ permiso = await Notification.requestPermission(); }catch(e){ permiso = Notification.permission; }
   if(permiso !== 'granted'){ toast('Para recibir los avisos tenés que tocar "Permitir"', true); renderEstadoAvisos(); return; }
   try{
-    await registroAvisos();
-    const reg = await navigator.serviceWorker.ready;
+    const registrado = await registroAvisos();
+    if(!registrado){ toast('No se pudo preparar este celular para recibir avisos. Probá de nuevo en un momento.', true); return; }
+    // Espera a que el receptor de avisos este listo (como mucho 10 segundos).
+    const reg = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((_, no) => setTimeout(() => no(new Error('tiempo')), 10000))
+    ]);
     const { publica } = await apiFetch('/api/comercio/push/clave');
     const vieja = await reg.pushManager.getSubscription();
     if(vieja) await vieja.unsubscribe();
