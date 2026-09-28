@@ -18,7 +18,7 @@ var index_default = {
       if (path.startsWith("/api/")) {
         const bloqueo = bloquearOrigenAjeno(request, url);
         if (bloqueo) return conCabecerasSeguridad(bloqueo, path);
-        let res = await handleApi(request, env, path);
+        let res = await handleApi(request, env, path, ctx);
         // Afuera del panel de Tapy, un error interno nunca muestra detalles de la base de datos.
         if (res.status >= 500 && !esRutaDelDueno(path)) {
           res = json({ error: "Error interno. Probá de nuevo en un momento." }, res.status);
@@ -134,7 +134,21 @@ async function handleChipRedirect(slug, env, ctx, request) {
       return Response.redirect(new URL(`/fidelizacion-inscripcion.html?c=${encodeURIComponent(slug)}`, request.url).toString(), 302);
     }
     if (row.tipo === "fidelizacion_puntos") {
-      return Response.redirect(new URL(`/fidelizacion-puntos.html?c=${encodeURIComponent(slug)}`, request.url).toString(), 302);
+      // Cada toque (o escaneo) genera un "pase de visita" nuevo, de un solo uso y que vence en
+      // 10 minutos. Sin pase valido no se suma moneda: recargar, volver atras, abrir el link desde
+      // el historial o reenviarselo a otra persona ya no sirve para sumar.
+      let destino = `/fidelizacion-puntos.html?c=${encodeURIComponent(slug)}`;
+      const viaToque = new URL(request.url).searchParams.get("src") === "qr" ? "qr" : "nfc";
+      if (viaToque === "qr") destino += "&s=qr";
+      try {
+        destino += `&v=${await crearPaseVisita(env, slug, viaToque)}`;
+      } catch (e) {
+        // Si no se pudo firmar el pase, la tarjeta igual abre (solo para ver, sin sumar).
+      }
+      return new Response(null, {
+        status: 302,
+        headers: { Location: new URL(destino, request.url).toString(), "Cache-Control": "no-store" }
+      });
     }
 
     const url = new URL(request.url);
@@ -169,7 +183,7 @@ function getCookieToken(request) {
 }
 __name(getCookieToken, "getCookieToken");
 
-async function handleApi(request, env, path) {
+async function handleApi(request, env, path, ctx) {
   const method = request.method;
   if (path === "/api/login" && method === "POST") {
     return apiLogin(request, env);
@@ -192,7 +206,7 @@ async function handleApi(request, env, path) {
 
   // ---------- FIDELIZACION: publico, sin login (clientes finales tocando su NFC) ----------
   if (path.startsWith("/api/public/fidelizacion/")) {
-    return handlePublicFidelizacionApi(request, env, path);
+    return handlePublicFidelizacionApi(request, env, path, ctx);
   }
 
   // ---------- FIDELIZACION: panel del comercio, login propio ----------
@@ -509,7 +523,7 @@ __name(apiChipPatch, "apiChipPatch");
 
 async function apiSettingsGet(env) {
   try {
-    const { results } = await env.DB.prepare(`SELECT key, value FROM settings WHERE key != 'secreto_sesiones'`).all();
+    const { results } = await env.DB.prepare(`SELECT key, value FROM settings WHERE key NOT IN ('secreto_sesiones', 'vapid')`).all();
     const obj = {};
     results.forEach((r) => { obj[r.key] = r.value; });
     return json(obj);
@@ -1033,6 +1047,7 @@ var GRACIA_DIAS = 3;
 var TAP_RATE_LIMIT_HOURS = 4; // valor de respaldo si el comercio todavia no tiene horas_entre_sumas cargado
 var MIN_HORAS_ENTRE_SUMAS = 0.25; // piso anti-abuso: 15 minutos entre moneda y moneda
 var MAX_HORAS_ENTRE_SUMAS = 168; // una semana
+var MAX_ADVERTENCIAS = 2; // con la 2a advertencia la tarjeta del cliente se bloquea
 var TOPE_DIARIO_DEFAULT = 1; // comercios nuevos: 1 moneda por dia (el comercio lo puede subir, ej: un bar)
 var AVISO_VENCIMIENTO_DIAS = 7; // cuantos dias antes de vencer aparece en "por vencer"
 var TZ_PY = "-3 hours"; // Paraguay, para que "este mes" sea el mes de Paraguay y no el de Londres
@@ -1154,6 +1169,46 @@ function randomHex(bytes) {
   return Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 __name(randomHex, "randomHex");
+
+// ---------- pase de visita: cada toque de la tarjeta vale UNA sola moneda ----------
+// Dura menos que la espera minima entre monedas (15 min): asi un mismo pase nunca puede dar 2
+// monedas a la misma persona. Ademas queda anotado al usarse, para que no lo use nadie mas.
+var VIGENCIA_PASE_SEG = 600;
+async function crearPaseVisita(env, slug, via) {
+  const ts = Math.floor(Date.now() / 1000);
+  const nonce = randomHex(6);
+  const firma = (await signWithSecret(env, `visita|${slug}|${ts}|${nonce}|${via === "qr" ? "qr" : "nfc"}`)).slice(0, 24);
+  return `${ts}.${nonce}.${firma}`;
+}
+__name(crearPaseVisita, "crearPaseVisita");
+
+async function paseVisitaValido(env, slug, pase, via) {
+  const p = String(pase || "").split(".");
+  if (p.length !== 3 || !/^\d{9,11}$/.test(p[0]) || !/^[0-9a-f]{12}$/.test(p[1]) || !/^[0-9a-f]{24}$/.test(p[2])) return false;
+  const edad = Math.floor(Date.now() / 1000) - Number(p[0]);
+  if (edad < -60 || edad > VIGENCIA_PASE_SEG) return false;
+  const esperado = (await signWithSecret(env, `visita|${slug}|${p[0]}|${p[1]}|${via === "qr" ? "qr" : "nfc"}`)).slice(0, 24);
+  return igualSeguro(esperado, p[2]);
+}
+__name(paseVisitaValido, "paseVisitaValido");
+
+// Anota el pase como usado por este cliente. true = recien usado; false = ya lo habia usado alguien.
+async function usarPaseVisita(env, pase, clienteId) {
+  try {
+    const r = await env.DB.prepare(
+      `INSERT OR IGNORE INTO fidelizacion_visitas (pase, cliente_id) VALUES (?, ?)`
+    ).bind(pase, clienteId).run();
+    if (Math.random() < 0.05) {
+      await env.DB.prepare(`DELETE FROM fidelizacion_visitas WHERE ts < datetime('now', '-2 days')`).run().catch(() => {});
+    }
+    return !!(r.meta && r.meta.changes);
+  } catch (e) {
+    // Sin la migracion v4 todavia: igual valen la firma y los 10 minutos del pase.
+    if (/no such table/i.test(String(e && e.message))) return true;
+    throw e;
+  }
+}
+__name(usarPaseVisita, "usarPaseVisita");
 
 // Fechas de SQLite ("2026-09-27 18:04:11", en UTC) a Date de JS.
 function parseFechaDb(s) {
@@ -1428,21 +1483,24 @@ async function estadoClienteRespuesta(env, comercio, cliente) {
     premios,
     vueltas_completadas: cliente.vueltas_completadas || 0,
     es_ultimo_nivel: Number(cliente.nivel_actual) >= Number(comercio.niveles),
-    vence_en_dias: diasParaVencer(comercio, cliente),
-    validez_dias: comercio.validez_dias
+    vence_en_dias: cliente.bloqueado ? null : diasParaVencer(comercio, cliente),
+    validez_dias: comercio.validez_dias,
+    advertencias: Number(cliente.advertencias) || 0,
+    max_advertencias: MAX_ADVERTENCIAS,
+    bloqueado: !!cliente.bloqueado
   };
 }
 __name(estadoClienteRespuesta, "estadoClienteRespuesta");
 
 // ---------- endpoints publicos (clientes finales, sin login) ----------
 
-async function handlePublicFidelizacionApi(request, env, path) {
+async function handlePublicFidelizacionApi(request, env, path, ctx) {
   const method = request.method;
   if (path === "/api/public/fidelizacion/info" && method === "GET") return apiPublicComercioInfo(request, env);
-  if (path === "/api/public/fidelizacion/inscribir" && method === "POST") return apiPublicInscribir(request, env);
+  if (path === "/api/public/fidelizacion/inscribir" && method === "POST") return apiPublicInscribir(request, env, ctx);
   if (path === "/api/public/fidelizacion/estado" && method === "GET") return apiPublicEstado(request, env);
-  if (path === "/api/public/fidelizacion/sumar" && method === "POST") return apiPublicSumar(request, env);
-  if (path === "/api/public/fidelizacion/recuperar-sesion" && method === "POST") return apiPublicRecuperarSesion(request, env);
+  if (path === "/api/public/fidelizacion/sumar" && method === "POST") return apiPublicSumar(request, env, ctx);
+  if (path === "/api/public/fidelizacion/recuperar-sesion" && method === "POST") return apiPublicRecuperarSesion(request, env, ctx);
   if (path === "/api/public/fidelizacion/ver" && method === "POST") return apiPublicVer(request, env);
   return json({ error: "Ruta no encontrada" }, 404);
 }
@@ -1501,7 +1559,7 @@ __name(normalizarWhatsapp, "normalizarWhatsapp");
 // Suma 1 moneda. La actualizacion es condicional y atomica: si llegan 2 toques al mismo tiempo
 // (doble apertura del NFC, doble clic), solo uno gana. "corteEspera" (opcional) exige que la
 // ultima moneda sea anterior a ese instante; sin corte (bienvenida/manual) no hay espera.
-async function acreditarMoneda(env, comercio, cliente, origen, corteEspera) {
+async function acreditarMoneda(env, comercio, cliente, origen, corteEspera, via) {
   const tope = Number(comercio.monedas_por_nivel) || 1;
   const cond = corteEspera ? ` AND (ultimo_tap IS NULL OR ultimo_tap <= ?)` : "";
   const binds = [tope, tope, cliente.id, Number(cliente.monedas_actuales) || 0];
@@ -1511,25 +1569,34 @@ async function acreditarMoneda(env, comercio, cliente, origen, corteEspera) {
        SET monedas_actuales = MIN(monedas_actuales + 1, ?),
            pendiente_canje = CASE WHEN monedas_actuales + 1 >= ? THEN 1 ELSE 0 END,
            ultimo_tap = datetime('now'), aviso_vencimiento_at = NULL
-     WHERE id = ? AND pendiente_canje = 0 AND monedas_actuales = ?${cond}`
+     WHERE id = ? AND pendiente_canje = 0 AND bloqueado = 0 AND monedas_actuales = ?${cond}`
   ).bind(...binds).run();
   if (!r.meta || !r.meta.changes) return { acreditada: false, nivelCompleto: false };
   // Solo quien gano la actualizacion escribe su renglon de historial.
-  await env.DB.prepare(
-    `INSERT INTO fidelizacion_taps (fidelizacion_cliente_id, delta, origen) VALUES (?, 1, ?)`
-  ).bind(cliente.id, origen).run();
+  const ins = await env.DB.prepare(
+    `INSERT INTO fidelizacion_taps (fidelizacion_cliente_id, delta, origen, via) VALUES (?, 1, ?, ?)`
+  ).bind(cliente.id, origen, via === "qr" ? "qr" : via === "nfc" ? "nfc" : null).run();
+  const tapId = ins.meta ? ins.meta.last_row_id : null;
   const nuevas = Math.min((Number(cliente.monedas_actuales) || 0) + 1, tope);
   cliente.monedas_actuales = nuevas;
   cliente.pendiente_canje = nuevas >= tope ? 1 : 0;
   cliente.ultimo_tap = ahoraDb();
   cliente.aviso_vencimiento_at = null;
-  return { acreditada: true, nivelCompleto: !!cliente.pendiente_canje };
+  return { acreditada: true, nivelCompleto: !!cliente.pendiente_canje, tapId };
 }
 __name(acreditarMoneda, "acreditarMoneda");
 
-async function intentarSumarMoneda(env, comercio, cliente) {
+async function intentarSumarMoneda(env, comercio, cliente, slug, pase, via) {
+  // Tarjeta bloqueada por 2 advertencias: no suma nada hasta que el comercio la desbloquee.
+  if (cliente.bloqueado) {
+    return { ...(await estadoClienteRespuesta(env, comercio, cliente)) };
+  }
   if (cliente.pendiente_canje) {
     return { ...(await estadoClienteRespuesta(env, comercio, cliente)), nivel_completo: true };
+  }
+  // Sin un toque fresco de la tarjeta del mostrador no hay moneda (ver "pase de visita").
+  if (!(await paseVisitaValido(env, slug, pase, via))) {
+    return { ...(await estadoClienteRespuesta(env, comercio, cliente)), sin_visita: true };
   }
   const horasEspera = horasEsperaComercio(comercio);
   const respuestaEspera = async (c) => {
@@ -1554,21 +1621,33 @@ async function intentarSumarMoneda(env, comercio, cliente) {
   if (hoy && hoy.n >= tope) {
     return { ...(await estadoClienteRespuesta(env, comercio, cliente)), tope_alcanzado: true, tope_diario: tope };
   }
+  if (!(await usarPaseVisita(env, pase, cliente.id))) {
+    return { ...(await estadoClienteRespuesta(env, comercio, cliente)), visita_usada: true };
+  }
   const corte = fechaDb(new Date(Date.now() - horasEspera * 3600000));
-  const r = await acreditarMoneda(env, comercio, cliente, "tap", corte);
+  const r = await acreditarMoneda(env, comercio, cliente, "tap", corte, via);
   if (!r.acreditada) {
     // Otro toque simultaneo gano la carrera: mostramos el estado real, sin sumar dos veces.
     const fresco = await env.DB.prepare(`SELECT * FROM fidelizacion_clientes WHERE id = ?`).bind(cliente.id).first();
     if (fresco && fresco.pendiente_canje) return { ...(await estadoClienteRespuesta(env, comercio, fresco)), nivel_completo: true };
     return respuestaEspera(fresco || cliente);
   }
-  return { ...(await estadoClienteRespuesta(env, comercio, cliente)), sumo_moneda: true, nivel_completo: r.nivelCompleto };
+  return { ...(await estadoClienteRespuesta(env, comercio, cliente)), sumo_moneda: true, nivel_completo: r.nivelCompleto, tap_id: r.tapId };
 }
 __name(intentarSumarMoneda, "intentarSumarMoneda");
 
+// Saca el dato interno (id del toque) de la respuesta al cliente y, si sumo moneda, le avisa al comercio.
+function responderSuma(ctx, env, comercio, cliente, resultado, via) {
+  const tapId = resultado.tap_id;
+  delete resultado.tap_id;
+  if (resultado.sumo_moneda && tapId) avisarComercio(ctx, env, comercio, cliente, tapId, "tap", via);
+  return resultado;
+}
+__name(responderSuma, "responderSuma");
+
 // Inscripcion: sirve desde cualquiera de las 2 tarjetas (inscripcion o puntos).
 // Al inscribirse por primera vez, el cliente se lleva su moneda de bienvenida.
-async function apiPublicInscribir(request, env) {
+async function apiPublicInscribir(request, env, ctx) {
   try {
     const body = await request.json();
     const slug = body.slug;
@@ -1604,7 +1683,13 @@ async function apiPublicInscribir(request, env) {
         ).bind(comercio.id, nombre, whatsapp).run();
         cliente = await env.DB.prepare(`SELECT * FROM fidelizacion_clientes WHERE id = ?`).bind(result.meta.last_row_id).first();
         esNuevo = true;
-        nivelCompleto = (await acreditarMoneda(env, comercio, cliente, "bienvenida")).nivelCompleto;
+        // Si se inscribio tocando la tarjeta del mostrador, ese toque ya quedo usado (no se reenvia).
+        const viaIns = body.via === "qr" ? "qr" : "nfc";
+        const conPase = !!body.v && comercio.chip_tipo === "fidelizacion_puntos" && (await paseVisitaValido(env, slug, body.v, viaIns));
+        const bienvenida = await acreditarMoneda(env, comercio, cliente, "bienvenida", null, conPase ? viaIns : null);
+        nivelCompleto = bienvenida.nivelCompleto;
+        if (bienvenida.tapId) avisarComercio(ctx, env, comercio, cliente, bienvenida.tapId, "bienvenida");
+        if (conPase) await usarPaseVisita(env, body.v, cliente.id);
       } catch (e) {
         // Doble envio del formulario: la otra solicitud ya lo creo. Seguimos con ese cliente.
         cliente = await buscar();
@@ -1666,7 +1751,7 @@ async function apiPublicEstado(request, env) {
 }
 __name(apiPublicEstado, "apiPublicEstado");
 
-async function apiPublicSumar(request, env) {
+async function apiPublicSumar(request, env, ctx) {
   try {
     const body = await request.json();
     const slug = body.slug;
@@ -1683,7 +1768,9 @@ async function apiPublicSumar(request, env) {
     const cliente = await env.DB.prepare(`SELECT * FROM fidelizacion_clientes WHERE id = ? AND comercio_id = ?`).bind(clienteId, comercio.id).first();
     if (!cliente) return json({ needsWhatsapp: true, ...(await infoPublicaComercio(env, comercio)) });
 
-    return json(await intentarSumarMoneda(env, comercio, cliente));
+    const via = body.via === "qr" ? "qr" : "nfc";
+    const resultado = await intentarSumarMoneda(env, comercio, cliente, slug, body.v, via);
+    return json(responderSuma(ctx, env, comercio, cliente, resultado, via));
   } catch (err) {
     return json({ error: err.message }, 500);
   }
@@ -1692,7 +1779,7 @@ __name(apiPublicSumar, "apiPublicSumar");
 
 // Cliente que ya es parte del club pero es su primera vez en este celular (tarjeta de puntos):
 // lo reconocemos por WhatsApp y le sumamos la moneda de esta visita.
-async function apiPublicRecuperarSesion(request, env) {
+async function apiPublicRecuperarSesion(request, env, ctx) {
   try {
     const body = await request.json();
     const { slug } = body;
@@ -1719,7 +1806,8 @@ async function apiPublicRecuperarSesion(request, env) {
       await registrarFallo(env, claves);
       return respuestaNombreNoCoincide();
     }
-    const resultado = await intentarSumarMoneda(env, comercio, cliente);
+    const via = body.via === "qr" ? "qr" : "nfc";
+    const resultado = responderSuma(ctx, env, comercio, cliente, await intentarSumarMoneda(env, comercio, cliente, slug, body.v, via), via);
     return respuestaConCookie(resultado, await buildFidSessionCookie(env, comercio.id, cliente.id));
   } catch (err) {
     return json({ error: err.message }, 500);
@@ -1762,17 +1850,287 @@ async function apiPublicVer(request, env) {
 }
 __name(apiPublicVer, "apiPublicVer");
 
+// ---------- AVISOS AL COMERCIO (notificaciones push al celular del encargado) ----------
+// Cada vez que un cliente suma una moneda, le llega un aviso a los celulares que el comercio
+// activo en su panel. Si el encargado no le cobro a nadie en ese momento, entra al aviso y le
+// da una advertencia al cliente. Funciona con el estandar Web Push: sin apps ni servicios pagos.
+
+var CONTACTO_PUSH = "https://app.tapy.site";
+var MAX_CELULARES_POR_COMERCIO = 10;
+
+function b64u(buf) {
+  const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let s = "";
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+__name(b64u, "b64u");
+
+function deB64u(str) {
+  let t = String(str || "").replace(/-/g, "+").replace(/_/g, "/");
+  while (t.length % 4) t += "=";
+  const bin = atob(t);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+__name(deB64u, "deB64u");
+
+function unirBytes(...partes) {
+  const total = partes.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let i = 0;
+  for (const p of partes) { out.set(p, i); i += p.length; }
+  return out;
+}
+__name(unirBytes, "unirBytes");
+
+// Par de claves propio del sistema para firmar los avisos (se genera solo, una vez, y queda en la base).
+var _vapid = null;
+async function clavesVapid(env) {
+  if (_vapid) return _vapid;
+  let row = await env.DB.prepare(`SELECT value FROM settings WHERE key = 'vapid'`).first();
+  if (!row || !row.value) {
+    const par = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+    const privada = await crypto.subtle.exportKey("jwk", par.privateKey);
+    const publica = b64u(await crypto.subtle.exportKey("raw", par.publicKey));
+    await env.DB.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES ('vapid', ?)`)
+      .bind(JSON.stringify({ privada, publica })).run();
+    row = await env.DB.prepare(`SELECT value FROM settings WHERE key = 'vapid'`).first();
+  }
+  const datos = JSON.parse(row.value);
+  const privada = await crypto.subtle.importKey("jwk", datos.privada, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  _vapid = { privada, publica: datos.publica };
+  return _vapid;
+}
+__name(clavesVapid, "clavesVapid");
+
+async function cabeceraVapid(env, endpoint) {
+  const { privada, publica } = await clavesVapid(env);
+  const te = new TextEncoder();
+  const parte = (o) => b64u(te.encode(JSON.stringify(o)));
+  const sinFirma = `${parte({ typ: "JWT", alg: "ES256" })}.${parte({
+    aud: new URL(endpoint).origin,
+    exp: Math.floor(Date.now() / 1000) + 12 * 3600,
+    sub: CONTACTO_PUSH
+  })}`;
+  const firma = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, privada, te.encode(sinFirma));
+  return `vapid t=${sinFirma}.${b64u(firma)}, k=${publica}`;
+}
+__name(cabeceraVapid, "cabeceraVapid");
+
+// Cifrado del aviso (RFC 8291, "aes128gcm"): solo el celular del comercio lo puede leer.
+async function cifrarAviso(p256dh, auth, texto) {
+  const te = new TextEncoder();
+  const celularPublica = deB64u(p256dh);
+  const secretoAuth = deB64u(auth);
+  const efimera = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  const servidorPublica = new Uint8Array(await crypto.subtle.exportKey("raw", efimera.publicKey));
+  const claveCelular = await crypto.subtle.importKey("raw", celularPublica, { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const compartido = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: claveCelular }, efimera.privateKey, 256));
+  const hkdf = async (sal, ikm, info, largo) => {
+    const k = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]);
+    return new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: sal, info }, k, largo * 8));
+  };
+  const ikm = await hkdf(secretoAuth, compartido, unirBytes(te.encode("WebPush: info\0"), celularPublica, servidorPublica), 32);
+  const sal = crypto.getRandomValues(new Uint8Array(16));
+  const cek = await hkdf(sal, ikm, te.encode("Content-Encoding: aes128gcm\0"), 16);
+  const nonce = await hkdf(sal, ikm, te.encode("Content-Encoding: nonce\0"), 12);
+  const claveAes = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["encrypt"]);
+  const cifrado = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, claveAes, unirBytes(te.encode(texto), new Uint8Array([2]))));
+  const cabecera = new Uint8Array(21 + servidorPublica.length);
+  cabecera.set(sal, 0);
+  new DataView(cabecera.buffer).setUint32(16, 4096);
+  cabecera[20] = servidorPublica.length;
+  cabecera.set(servidorPublica, 21);
+  return unirBytes(cabecera, cifrado);
+}
+__name(cifrarAviso, "cifrarAviso");
+
+// Solo se aceptan direcciones de los servicios de avisos de Google, Apple, Mozilla y Microsoft.
+function endpointPushValido(u) {
+  try {
+    const x = new URL(String(u || ""));
+    if (x.protocol !== "https:" || String(u).length > 1000) return false;
+    const h = x.hostname;
+    return h === "fcm.googleapis.com" || h === "android.googleapis.com" || h.endsWith(".push.apple.com") ||
+      h === "updates.push.services.mozilla.com" || h.endsWith(".push.services.mozilla.com") || h.endsWith(".notify.windows.com");
+  } catch (e) {
+    return false;
+  }
+}
+__name(endpointPushValido, "endpointPushValido");
+
+async function enviarAvisoComercio(env, comercioId, datos) {
+  let subs = [];
+  try {
+    subs = (await env.DB.prepare(`SELECT id, endpoint, p256dh, auth FROM fidelizacion_push WHERE comercio_id = ?`).bind(comercioId).all()).results || [];
+  } catch (e) {
+    return { enviados: 0, total: 0, errores: ["sin_tabla"] };
+  }
+  const texto = JSON.stringify(datos);
+  let enviados = 0;
+  const errores = [];
+  await Promise.all(subs.map(async (s) => {
+    try {
+      const res = await fetch(s.endpoint, {
+        method: "POST",
+        headers: {
+          TTL: "900",
+          Urgency: "high",
+          "Content-Encoding": "aes128gcm",
+          "Content-Type": "application/octet-stream",
+          Authorization: await cabeceraVapid(env, s.endpoint)
+        },
+        body: await cifrarAviso(s.p256dh, s.auth, texto)
+      });
+      if (res.ok) { enviados++; return; }
+      errores.push(res.status);
+      // 404/410: ese celular ya no existe o desactivo los avisos. Se borra solo.
+      if (res.status === 404 || res.status === 410) {
+        await env.DB.prepare(`DELETE FROM fidelizacion_push WHERE id = ?`).bind(s.id).run();
+      }
+    } catch (e) {
+      errores.push("red");
+    }
+  }));
+  return { enviados, total: subs.length, errores };
+}
+__name(enviarAvisoComercio, "enviarAvisoComercio");
+
+function horaParaguay(ts) {
+  const d = ts ? parseFechaDb(ts) : new Date();
+  return new Date((d ? d.getTime() : Date.now()) - 3 * 3600000).toISOString().slice(11, 16);
+}
+__name(horaParaguay, "horaParaguay");
+
+function avisarComercio(ctx, env, comercio, cliente, tapId, tipo, via) {
+  const total = Number(comercio.monedas_por_nivel) || 1;
+  let datos;
+  if (tipo === "bienvenida") {
+    datos = {
+      title: `${cliente.nombre} se sumó al club`,
+      body: `Moneda de bienvenida a las ${horaParaguay()} h.`,
+      url: `/comercio.html?tap=${tapId}`,
+      tag: `tap-${tapId}`
+    };
+  } else {
+    const como = via === "qr" ? "Escaneó el QR" : "Tocó la tarjeta";
+    const estado = cliente.pendiente_canje ? `completó el nivel ${cliente.nivel_actual}` : `lleva ${cliente.monedas_actuales} de ${total}`;
+    datos = {
+      title: `${cliente.nombre} sumó una moneda`,
+      body: `${como} a las ${horaParaguay()} h y ${estado}. Si no estaba en el local, tocá acá para advertirle.`,
+      url: `/comercio.html?tap=${tapId}`,
+      tag: `tap-${tapId}`
+    };
+  }
+  const tarea = enviarAvisoComercio(env, comercio.id, datos).catch(() => {});
+  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(tarea);
+}
+__name(avisarComercio, "avisarComercio");
+
+// ---------- ADVERTENCIAS ----------
+
+async function tapDelComercio(env, comercio, tapId) {
+  return env.DB.prepare(
+    `SELECT t.id, t.ts, t.delta, t.origen, t.anulado, t.via,
+            c.id AS cliente_id, c.nombre, c.whatsapp, c.advertencias, c.bloqueado, c.monedas_actuales,
+            c.pendiente_canje, c.nivel_actual,
+            (SELECT COALESCE(MAX(x.id), 0) FROM fidelizacion_taps x WHERE x.fidelizacion_cliente_id = c.id AND x.origen IN ('bloqueo', 'desbloqueo')) AS corte_adv
+     FROM fidelizacion_taps t JOIN fidelizacion_clientes c ON c.id = t.fidelizacion_cliente_id
+     WHERE t.id = ? AND c.comercio_id = ?`
+  ).bind(tapId, comercio.id).first();
+}
+__name(tapDelComercio, "tapDelComercio");
+
+// Se puede advertir una moneda sumada con la tarjeta, no anulada, de un cliente no bloqueado, y
+// posterior a su ultimo bloqueo/desbloqueo (lo anterior ya se sanciono o se perdono).
+function tapAdvertible(t) {
+  return t.origen === "tap" && t.delta > 0 && !t.anulado && !t.bloqueado && Number(t.id) > (Number(t.corte_adv) || 0);
+}
+__name(tapAdvertible, "tapAdvertible");
+
+function tapParaPanel(t) {
+  return {
+    id: t.id, ts: t.ts, origen: t.origen, anulado: !!t.anulado, via: t.via || null,
+    cliente_id: t.cliente_id, nombre: t.nombre, whatsapp: t.whatsapp,
+    advertencias: Number(t.advertencias) || 0, bloqueado: !!t.bloqueado,
+    monedas_actuales: t.monedas_actuales, pendiente_canje: !!t.pendiente_canje, nivel_actual: t.nivel_actual,
+    se_puede_advertir: tapAdvertible(t)
+  };
+}
+__name(tapParaPanel, "tapParaPanel");
+
+async function advertirPorTap(env, comercio, tapId) {
+  const t = await tapDelComercio(env, comercio, tapId);
+  if (!t) return { status: 404, error: "No encontramos esa moneda" };
+  if (t.origen !== "tap" || !(t.delta > 0)) return { status: 409, error: "Solo se puede advertir una moneda sumada con la tarjeta del mostrador" };
+  if (t.bloqueado) return { status: 409, error: "La tarjeta de este cliente ya está bloqueada" };
+  if (t.anulado) return { status: 409, error: "Esta moneda ya fue advertida" };
+  if (!tapAdvertible(t)) return { status: 409, error: "Esta moneda es anterior a un bloqueo o desbloqueo: ya no se puede advertir" };
+  // 1) Se anula la moneda, solo si seguia sin anular y el cliente no esta bloqueado. Si se toca
+  //    "Advertir" dos veces (o desde dos celulares), la segunda no hace nada.
+  const marca = await env.DB.prepare(
+    `UPDATE fidelizacion_taps SET anulado = 1
+     WHERE id = ? AND anulado = 0 AND EXISTS (SELECT 1 FROM fidelizacion_clientes WHERE id = ? AND bloqueado = 0)`
+  ).bind(t.id, t.cliente_id).run();
+  if (!marca.meta || !marca.meta.changes) return { status: 409, error: "Esta moneda ya fue advertida" };
+  // 2) Se suma la advertencia (+1 atomico: dos advertencias al mismo tiempo cuentan como dos).
+  //    Si esto fallara, la moneda vuelve a quedar como estaba, para no anularla sin advertencia.
+  try {
+    await env.DB.prepare(`UPDATE fidelizacion_clientes SET advertencias = advertencias + 1 WHERE id = ?`).bind(t.cliente_id).run();
+  } catch (e) {
+    await env.DB.prepare(`UPDATE fidelizacion_taps SET anulado = 0 WHERE id = ?`).bind(t.id).run().catch(() => {});
+    throw e;
+  }
+  const cliente = await env.DB.prepare(`SELECT * FROM fidelizacion_clientes WHERE id = ?`).bind(t.cliente_id).first();
+  const advertencias = Number(cliente.advertencias) || 0;
+
+  if (advertencias >= MAX_ADVERTENCIAS) {
+    // 2a advertencia: tarjeta bloqueada, pierde sus monedas y queda en la lista de bloqueados.
+    const perdidas = Number(cliente.monedas_actuales) || 0;
+    const bloqueo = await env.DB.prepare(
+      `UPDATE fidelizacion_clientes SET bloqueado = 1, bloqueado_at = datetime('now'),
+         monedas_actuales = 0, pendiente_canje = 0 WHERE id = ? AND bloqueado = 0`
+    ).bind(cliente.id).run();
+    if (bloqueo.meta && bloqueo.meta.changes) await env.DB.prepare(
+      `INSERT INTO fidelizacion_taps (fidelizacion_cliente_id, delta, origen) VALUES (?, ?, 'bloqueo')`
+    ).bind(cliente.id, -perdidas).run();
+    return { status: 200, ok: true, advertencias, bloqueado: true, moneda_anulada: perdidas > 0, monedas_actuales: 0, cliente_id: cliente.id, nombre: cliente.nombre, whatsapp: cliente.whatsapp };
+  }
+
+  // 1a advertencia: se le saca esa moneda, salvo que despues ya haya retirado un premio o se le
+  // hayan vencido las monedas (en ese caso la moneda ya no esta; queda solo la advertencia).
+  const despues = await env.DB.prepare(
+    `SELECT (SELECT COUNT(*) FROM fidelizacion_canjes WHERE fidelizacion_cliente_id = ? AND ts >= ?)
+          + (SELECT COUNT(*) FROM fidelizacion_taps WHERE fidelizacion_cliente_id = ? AND id > ? AND origen IN ('vencimiento', 'bloqueo')) AS n`
+  ).bind(cliente.id, t.ts, cliente.id, t.id).first();
+  const quitar = !(despues && despues.n > 0) && (Number(cliente.monedas_actuales) || 0) > 0;
+  await env.DB.prepare(
+    `UPDATE fidelizacion_clientes SET
+       monedas_actuales = CASE WHEN ? THEN MAX(monedas_actuales - 1, 0) ELSE monedas_actuales END,
+       pendiente_canje = CASE WHEN ? THEN 0 ELSE pendiente_canje END
+     WHERE id = ?`
+  ).bind(quitar ? 1 : 0, quitar ? 1 : 0, cliente.id).run();
+  await env.DB.prepare(
+    `INSERT INTO fidelizacion_taps (fidelizacion_cliente_id, delta, origen) VALUES (?, ?, 'advertencia')`
+  ).bind(cliente.id, quitar ? -1 : 0).run();
+  const monedas = quitar ? Math.max(0, (Number(cliente.monedas_actuales) || 0) - 1) : Number(cliente.monedas_actuales) || 0;
+  return { status: 200, ok: true, advertencias, bloqueado: false, moneda_anulada: quitar, monedas_actuales: monedas, cliente_id: cliente.id, nombre: cliente.nombre, whatsapp: cliente.whatsapp };
+}
+__name(advertirPorTap, "advertirPorTap");
+
 // ---------- consultas compartidas (panel del comercio y panel de Tapy) ----------
 
 async function listarClientesComercio(env, comercio, conLinkTarjeta) {
   await aplicarVencimientos(env, comercio);
   const { results } = await env.DB.prepare(
     `SELECT c.*,
-       (SELECT COUNT(*) FROM fidelizacion_taps t WHERE t.fidelizacion_cliente_id = c.id AND t.delta > 0) AS visitas,
+       (SELECT COUNT(*) FROM fidelizacion_taps t WHERE t.fidelizacion_cliente_id = c.id AND t.delta > 0 AND t.anulado = 0) AS visitas,
        (SELECT COUNT(*) FROM fidelizacion_canjes k WHERE k.fidelizacion_cliente_id = c.id) AS premios_canjeados
      FROM fidelizacion_clientes c
      WHERE c.comercio_id = ?
-     ORDER BY c.pendiente_canje DESC, c.monedas_actuales DESC, c.id DESC`
+     ORDER BY c.bloqueado ASC, c.pendiente_canje DESC, c.monedas_actuales DESC, c.id DESC`
   ).bind(comercio.id).all();
   const lista = results || [];
   for (const c of lista) {
@@ -1793,19 +2151,21 @@ async function metricasComercio(env, comercio) {
   const dias = Number(comercio.validez_dias) || 0;
   const q = (sql, ...binds) => env.DB.prepare(sql).bind(...binds);
   const res = await env.DB.batch([
-    q(`SELECT COUNT(*) AS n ${joinTaps} AND t.delta > 0 AND strftime('%Y-%m', t.ts, '${TZ_PY}') = ${mesActual}`, id),
-    q(`SELECT COUNT(*) AS n ${joinTaps} AND t.delta > 0 AND strftime('%Y-%m', t.ts, '${TZ_PY}') = ${mesAnterior}`, id),
+    q(`SELECT COUNT(*) AS n ${joinTaps} AND t.delta > 0 AND t.anulado = 0 AND strftime('%Y-%m', t.ts, '${TZ_PY}') = ${mesActual}`, id),
+    q(`SELECT COUNT(*) AS n ${joinTaps} AND t.delta > 0 AND t.anulado = 0 AND strftime('%Y-%m', t.ts, '${TZ_PY}') = ${mesAnterior}`, id),
     q(`SELECT COUNT(*) AS n FROM fidelizacion_clientes WHERE comercio_id = ? AND strftime('%Y-%m', created_at, '${TZ_PY}') = ${mesActual}`, id),
     q(`SELECT COUNT(*) AS n ${joinCanjes} AND strftime('%Y-%m', k.ts, '${TZ_PY}') = ${mesActual}`, id),
     q(`SELECT COUNT(*) AS n ${joinCanjes}`, id),
     q(`SELECT COUNT(*) AS n FROM fidelizacion_clientes WHERE comercio_id = ?`, id),
-    q(`SELECT COUNT(*) AS n FROM (SELECT t.fidelizacion_cliente_id ${joinTaps} AND t.delta > 0 GROUP BY t.fidelizacion_cliente_id HAVING COUNT(*) >= 2)`, id),
+    q(`SELECT COUNT(*) AS n FROM (SELECT t.fidelizacion_cliente_id ${joinTaps} AND t.delta > 0 AND t.anulado = 0 GROUP BY t.fidelizacion_cliente_id HAVING COUNT(*) >= 2)`, id),
     q(`SELECT COUNT(*) AS n FROM fidelizacion_clientes WHERE comercio_id = ? AND ultimo_tap IS NOT NULL AND julianday('now') - julianday(ultimo_tap) <= 30`, id),
     q(`SELECT COUNT(*) AS n FROM fidelizacion_clientes WHERE comercio_id = ? AND pendiente_canje = 1`, id),
     q(`SELECT COUNT(*) AS n FROM fidelizacion_clientes WHERE comercio_id = ? AND pendiente_canje = 0 AND monedas_actuales > 0 AND ? > 0
          AND MAX(COALESCE(ultimo_tap, created_at), ?) < ?`, id, dias, comercio.validez_desde || "",
       fechaDb(new Date(Date.now() - Math.max(0, dias - AVISO_VENCIMIENTO_DIAS) * 86400000))),
-    q(`SELECT COALESCE(SUM(-t.delta), 0) AS n ${joinTaps} AND t.origen = 'vencimiento' AND strftime('%Y-%m', t.ts, '${TZ_PY}') = ${mesActual}`, id)
+    q(`SELECT COALESCE(SUM(-t.delta), 0) AS n ${joinTaps} AND t.origen = 'vencimiento' AND strftime('%Y-%m', t.ts, '${TZ_PY}') = ${mesActual}`, id),
+    q(`SELECT COUNT(*) AS n ${joinTaps} AND t.origen IN ('advertencia', 'bloqueo') AND strftime('%Y-%m', t.ts, '${TZ_PY}') = ${mesActual}`, id),
+    q(`SELECT COUNT(*) AS n FROM fidelizacion_clientes WHERE comercio_id = ? AND bloqueado = 1`, id)
   ]);
   const n = (i) => (res[i] && res[i].results && res[i].results[0] ? Number(res[i].results[0].n) || 0 : 0);
   const clientesTotal = n(5);
@@ -1822,7 +2182,9 @@ async function metricasComercio(env, comercio) {
     activos_30: n(7),
     esperando_premio: n(8),
     por_vencer: n(9),
-    monedas_vencidas_mes: n(10)
+    monedas_vencidas_mes: n(10),
+    advertencias_mes: n(11),
+    bloqueados: n(12)
   };
 }
 __name(metricasComercio, "metricasComercio");
@@ -1914,19 +2276,33 @@ async function eliminarFidelizacionComercio(env, comercioId, liberarChips) {
     env.DB.prepare(`DELETE FROM fidelizacion_premios WHERE comercio_id = ?`).bind(comercioId),
     env.DB.prepare(`DELETE FROM fidelizacion_cobros WHERE comercio_id = ?`).bind(comercioId)
   ]);
-
-  if (liberarChips) {
-    const stockClientId = await getStockClientId(env);
-    const chipIds = [comercio.nfc_inscripcion_chip_id, comercio.nfc_puntos_chip_id].filter(Boolean);
-    for (const chipId of chipIds) {
-      await env.DB.prepare(
-        `UPDATE chips SET client_id = ?, destination_url = ?, status = 'sin_asignar', tipo = 'resena', label = NULL WHERE id = ?`
-      ).bind(stockClientId, "https://tapy.com.py/pendiente-asignacion", chipId).run();
-    }
-  }
+  await env.DB.prepare(`DELETE FROM fidelizacion_push WHERE comercio_id = ?`).bind(comercioId).run().catch(() => {});
 
   await env.DB.prepare(`DELETE FROM fidelizacion_comercios WHERE id = ?`).bind(comercioId).run();
+
+  if (liberarChips) {
+    const chipIds = [comercio.nfc_inscripcion_chip_id, comercio.nfc_puntos_chip_id].filter(Boolean);
+    for (const chipId of chipIds) await devolverChipFidelizacion(env, chipId);
+  }
 }
+
+// Un chip impreso (tiene numero de lote) vuelve a tu stock libre; uno virtual se borra
+// (no existe fisicamente, no tiene sentido que aparezca como stock).
+async function devolverChipFidelizacion(env, chipId) {
+  const chip = await env.DB.prepare(`SELECT id, numero_lote, lote_id, label FROM chips WHERE id = ?`).bind(chipId).first();
+  if (!chip) return;
+  if (chip.numero_lote === null && chip.lote_id === null && chip.label === null) {
+    await env.DB.prepare(`DELETE FROM taps WHERE chip_id = ?`).bind(chipId).run();
+    await env.DB.prepare(`DELETE FROM chips WHERE id = ?`).bind(chipId).run();
+    return;
+  }
+  const stockClientId = await getStockClientId(env);
+  await env.DB.prepare(
+    `UPDATE chips SET client_id = ?, destination_url = ?, status = 'sin_asignar', tipo = 'resena', label = NULL WHERE id = ?`
+  ).bind(stockClientId, "https://tapy.com.py/pendiente-asignacion", chipId).run();
+}
+__name(devolverChipFidelizacion, "devolverChipFidelizacion");
+
 __name(eliminarFidelizacionComercio, "eliminarFidelizacionComercio");
 
 async function apiFidComercioDelete(id, env) {
@@ -1988,6 +2364,7 @@ async function apiFidComerciosList(env) {
     const { results } = await env.DB.prepare(
       `SELECT fidelizacion_comercios.*, clients.name AS client_name, clients.whatsapp AS client_whatsapp,
         chip_i.slug AS slug_inscripcion, chip_p.slug AS slug_puntos,
+        chip_p.numero_lote AS numero_puntos,
         (SELECT COUNT(*) FROM fidelizacion_clientes WHERE fidelizacion_clientes.comercio_id = fidelizacion_comercios.id) AS clientes_total,
         (SELECT COUNT(*) FROM fidelizacion_clientes WHERE fidelizacion_clientes.comercio_id = fidelizacion_comercios.id AND pendiente_canje = 1) AS pendientes_canje
        FROM fidelizacion_comercios
@@ -2019,13 +2396,11 @@ async function apiFidComercioCreate(request, env) {
     // Validamos TODO (incluidas las 2 tarjetas) antes de escribir nada en la base: si algo
     // de esto falla, no queremos dejar un comercio a medio crear que despues bloquee un
     // segundo intento (usuario/empresa ya "ocupados" por una fila fantasma).
-    if (body.chip_inscripcion_id && body.chip_puntos_id && String(body.chip_inscripcion_id) === String(body.chip_puntos_id)) {
-      return json({ error: "Elegí 2 chips distintos para inscripción y puntos" }, 400);
-    }
-    let chipInsValidado, chipPunValidado;
+    // Una sola tarjeta fisica por comercio: la del mostrador (inscribe a los nuevos y suma la
+    // moneda a los que ya son del club). El link para redes/afiches se genera solo, sin chip.
+    let chipPunValidado;
     try {
-      chipInsValidado = await validarChipFidelizacion(env, body.chip_inscripcion_id);
-      chipPunValidado = await validarChipFidelizacion(env, body.chip_puntos_id);
+      chipPunValidado = await validarChipFidelizacion(env, body.chip_id || body.chip_puntos_id);
     } catch (err) {
       return json({ error: err.message }, 409);
     }
@@ -2056,11 +2431,10 @@ async function apiFidComercioCreate(request, env) {
       await env.DB.batch(statements);
     }
 
-    // El comercio puede elegir, para cada una de las 2 tarjetas por separado, un chip ya
-    // impreso (NFC+QR) de su stock libre (control de inventario), o dejar que el sistema
-    // le genere un chip virtual nuevo. Cada tarjeta se resuelve de forma independiente.
-    const chipIns = await reclamarChipFidelizacion(env, body.client_id, chipInsValidado, "fidelizacion_inscripcion", "Fidelizacion - inscripcion");
-    const chipPun = await reclamarChipFidelizacion(env, body.client_id, chipPunValidado, "fidelizacion_puntos", "Fidelizacion - puntos");
+    // Tarjeta del mostrador: un chip impreso (NFC+QR) del stock libre, o uno virtual si no se elige.
+    // Link para redes: siempre virtual (no usa stock).
+    const chipIns = await reclamarChipFidelizacion(env, body.client_id, null, "fidelizacion_inscripcion", "Fidelizacion - link para redes");
+    const chipPun = await reclamarChipFidelizacion(env, body.client_id, chipPunValidado, "fidelizacion_puntos", "Fidelizacion - mostrador");
 
     await env.DB.prepare(
       `UPDATE fidelizacion_comercios SET nfc_inscripcion_chip_id = ?, nfc_puntos_chip_id = ? WHERE id = ?`
@@ -2375,6 +2749,124 @@ async function handleComercioApi(request, env, path, comercio) {
     }
   }
 
+  // ---------- actividad en vivo, advertencias y avisos al celular ----------
+  if (path === "/api/comercio/actividad" && method === "GET") {
+    try {
+      const desde = parseInt(new URL(request.url).searchParams.get("desde") || "0", 10) || 0;
+      const { results } = await env.DB.prepare(
+        `SELECT t.id, t.ts, t.delta, t.origen, t.anulado, t.via,
+                c.id AS cliente_id, c.nombre, c.whatsapp, c.advertencias, c.bloqueado, c.monedas_actuales,
+                c.pendiente_canje, c.nivel_actual,
+                (SELECT COALESCE(MAX(x.id), 0) FROM fidelizacion_taps x WHERE x.fidelizacion_cliente_id = c.id AND x.origen IN ('bloqueo', 'desbloqueo')) AS corte_adv
+         FROM fidelizacion_taps t JOIN fidelizacion_clientes c ON c.id = t.fidelizacion_cliente_id
+         WHERE c.comercio_id = ? AND t.id > ? AND t.delta > 0 AND t.origen IN ('tap', 'bienvenida')
+           AND date(t.ts, '${TZ_PY}') = date('now', '${TZ_PY}')
+         ORDER BY t.id DESC LIMIT 60`
+      ).bind(comercio.id, desde).all();
+      return json({ actividad: (results || []).map(tapParaPanel) });
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
+  const tapMatch = path.match(/^\/api\/comercio\/taps\/(\d+)$/);
+  if (tapMatch && method === "GET") {
+    try {
+      const t = await tapDelComercio(env, comercio, tapMatch[1]);
+      if (!t) return json({ error: "No encontramos esa moneda" }, 404);
+      return json(tapParaPanel(t));
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
+  const advertirMatch = path.match(/^\/api\/comercio\/taps\/(\d+)\/advertir$/);
+  if (advertirMatch && method === "POST") {
+    try {
+      const r = await advertirPorTap(env, comercio, advertirMatch[1]);
+      const { status, ...resto } = r;
+      return json(resto, status);
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
+  const desbloquearMatch = path.match(/^\/api\/comercio\/clientes\/(\d+)\/desbloquear$/);
+  if (desbloquearMatch && method === "POST") {
+    try {
+      const cliente = await clienteDelComercio(env, comercio, desbloquearMatch[1]);
+      if (!cliente) return json({ error: "Cliente no encontrado" }, 404);
+      if (!cliente.bloqueado) return json({ error: "Este cliente no está bloqueado" }, 409);
+      await env.DB.prepare(
+        `UPDATE fidelizacion_clientes SET bloqueado = 0, advertencias = 0, bloqueado_at = NULL WHERE id = ?`
+      ).bind(cliente.id).run();
+      await env.DB.prepare(
+        `INSERT INTO fidelizacion_taps (fidelizacion_cliente_id, delta, origen) VALUES (?, 0, 'desbloqueo')`
+      ).bind(cliente.id).run();
+      return json({ ok: true });
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
+  if (path === "/api/comercio/push/clave" && method === "GET") {
+    try {
+      return json({ publica: (await clavesVapid(env)).publica });
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
+  if (path === "/api/comercio/push/suscribir" && method === "POST") {
+    try {
+      const body = await request.json();
+      const endpoint = String(body.endpoint || "");
+      const keys = body.keys || {};
+      const p256dh = String(keys.p256dh || "");
+      const auth = String(keys.auth || "");
+      if (!endpointPushValido(endpoint) || !/^[A-Za-z0-9_-]{80,100}$/.test(p256dh) || !/^[A-Za-z0-9_-]{16,32}$/.test(auth)) {
+        return json({ error: "Este celular no se pudo registrar para recibir avisos" }, 400);
+      }
+      await env.DB.prepare(`DELETE FROM fidelizacion_push WHERE endpoint = ?`).bind(endpoint).run();
+      await env.DB.prepare(
+        `INSERT INTO fidelizacion_push (comercio_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)`
+      ).bind(comercio.id, endpoint, p256dh, auth).run();
+      // Maximo 10 celulares por comercio: se va el mas viejo.
+      await env.DB.prepare(
+        `DELETE FROM fidelizacion_push WHERE comercio_id = ? AND id NOT IN
+           (SELECT id FROM fidelizacion_push WHERE comercio_id = ? ORDER BY id DESC LIMIT ${MAX_CELULARES_POR_COMERCIO})`
+      ).bind(comercio.id, comercio.id).run();
+      return json({ ok: true });
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
+  if (path === "/api/comercio/push/desuscribir" && method === "POST") {
+    try {
+      const body = await request.json();
+      await env.DB.prepare(`DELETE FROM fidelizacion_push WHERE endpoint = ? AND comercio_id = ?`)
+        .bind(String(body.endpoint || ""), comercio.id).run();
+      return json({ ok: true });
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
+  if (path === "/api/comercio/push/probar" && method === "POST") {
+    try {
+      const r = await enviarAvisoComercio(env, comercio.id, {
+        title: "Aviso de prueba de Tapy",
+        body: "Así te va a llegar cada moneda que se sume en tu club.",
+        url: "/comercio.html",
+        tag: "prueba"
+      });
+      return json({ ok: true, ...r });
+    } catch (err) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
   const canjearMatch = path.match(/^\/api\/comercio\/clientes\/(\d+)\/canjear$/);
   if (canjearMatch && method === "POST") {
     try {
@@ -2419,6 +2911,7 @@ async function handleComercioApi(request, env, path, comercio) {
       const delta = Number(body.delta);
       const cliente = await clienteDelComercio(env, comercio, ajustarMatch[1]);
       if (!cliente) return json({ error: "Cliente no encontrado" }, 404);
+      if (cliente.bloqueado) return json({ error: "La tarjeta de este cliente está bloqueada. Desbloqueala primero." }, 409);
       if (delta === 1) {
         if (cliente.pendiente_canje) return json({ error: "Este cliente ya completó el nivel. Entregale el premio primero." }, 409);
         const r = await acreditarMoneda(env, comercio, cliente, "manual");
@@ -2466,13 +2959,19 @@ async function handleComercioApi(request, env, path, comercio) {
       const cliente = await clienteDelComercio(env, comercio, historialMatch[1]);
       if (!cliente) return json({ error: "Cliente no encontrado" }, 404);
       const res = await env.DB.batch([
-        env.DB.prepare(`SELECT id, ts, delta, origen FROM fidelizacion_taps WHERE fidelizacion_cliente_id = ? ORDER BY id DESC LIMIT 200`).bind(cliente.id),
+        env.DB.prepare(`SELECT id, ts, delta, origen, anulado, via FROM fidelizacion_taps WHERE fidelizacion_cliente_id = ? ORDER BY id DESC LIMIT 200`).bind(cliente.id),
         env.DB.prepare(`SELECT id, ts, nivel_canjeado FROM fidelizacion_canjes WHERE fidelizacion_cliente_id = ? ORDER BY id DESC LIMIT 100`).bind(cliente.id)
       ]);
-      const movimientos = (res[0].results || []).map((t) => ({ ts: t.ts, tipo: t.origen, delta: t.delta }));
+      const corte = await env.DB.prepare(
+        `SELECT COALESCE(MAX(id), 0) AS n FROM fidelizacion_taps WHERE fidelizacion_cliente_id = ? AND origen IN ('bloqueo', 'desbloqueo')`
+      ).bind(cliente.id).first();
+      const movimientos = (res[0].results || []).map((t) => ({
+        id: t.id, ts: t.ts, tipo: t.origen, delta: t.delta, anulado: !!t.anulado, via: t.via || null,
+        se_puede_advertir: tapAdvertible({ ...t, bloqueado: cliente.bloqueado, corte_adv: corte ? corte.n : 0 })
+      }));
       const canjes = (res[1].results || []).map((k) => ({ ts: k.ts, tipo: "canje", nivel: k.nivel_canjeado }));
       const todo = movimientos.concat(canjes).sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
-      return json({ cliente: { id: cliente.id, nombre: cliente.nombre, whatsapp: cliente.whatsapp, created_at: cliente.created_at }, historial: todo });
+      return json({ cliente: { id: cliente.id, nombre: cliente.nombre, whatsapp: cliente.whatsapp, created_at: cliente.created_at, advertencias: Number(cliente.advertencias) || 0, bloqueado: !!cliente.bloqueado }, historial: todo });
     } catch (err) {
       return json({ error: err.message }, 500);
     }
