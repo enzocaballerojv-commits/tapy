@@ -1048,7 +1048,7 @@ var TAP_RATE_LIMIT_HOURS = 4; // valor de respaldo si el comercio todavia no tie
 var MIN_HORAS_ENTRE_SUMAS = 0.25; // piso anti-abuso: 15 minutos entre moneda y moneda
 var MAX_HORAS_ENTRE_SUMAS = 168; // una semana
 var MAX_ADVERTENCIAS = 2; // con la 2a advertencia la tarjeta del cliente se bloquea
-var TOPE_DIARIO_DEFAULT = 1; // comercios nuevos: 1 moneda por dia (el comercio lo puede subir, ej: un bar)
+var TOPE_DIARIO_DEFAULT = 0; // 0 = sin limite (el encargado controla cada moneda con los avisos) // comercios nuevos: 1 moneda por dia (el comercio lo puede subir, ej: un bar)
 var AVISO_VENCIMIENTO_DIAS = 7; // cuantos dias antes de vencer aparece en "por vencer"
 var TZ_PY = "-3 hours"; // Paraguay, para que "este mes" sea el mes de Paraguay y no el de Londres
 var LIMITE_FALLOS_POR_NUMERO = 5; // intentos con nombre equivocado sobre un mismo numero, cada 30 min
