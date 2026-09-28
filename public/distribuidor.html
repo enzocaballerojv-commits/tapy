@@ -421,7 +421,7 @@ function rowHtml(c){
   const isStock = isStockOf(c);
   return `
   <tr>
-    <td class="num-cell">${String(c.numero_lote).padStart(3,'0')}</td>
+    <td class="num-cell">${c.numero_lote!=null ? String(c.numero_lote).padStart(3,'0') : '<span class="small">virtual</span>'}</td>
     <td class="mono">${escHtml(c.slug)}</td>
     <td><span class="badge badge-${escHtml(c.status)}">${statusLabelOf(c)}</span></td>
     <td>${isStock ? '<span class="stock-dash">— sin asignar —</span>' : `<span class="empresa-name">${escHtml(c.client_name||'—')}</span>`}</td>
@@ -438,7 +438,7 @@ function cardHtml(c){
   return `
   <div class="chip-card">
     <div class="chip-card-top">
-      <div class="num-cell">#${String(c.numero_lote).padStart(3,'0')} <span class="mono">${escHtml(c.slug)}</span></div>
+      <div class="num-cell">${c.numero_lote!=null ? '#'+String(c.numero_lote).padStart(3,'0') : 'virtual'} <span class="mono">${escHtml(c.slug)}</span></div>
       <span class="badge badge-${escHtml(c.status)}">${statusLabelOf(c)}</span>
     </div>
     ${isStock

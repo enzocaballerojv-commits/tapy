@@ -218,7 +218,7 @@
     <div class="brand"><span class="dot"></span><span id="brandName">Mi club de fidelidad</span></div>
     <div class="topbar-actions">
       <span class="estado-pill estado-pill-activo" id="estadoPill">activo</span>
-      <button onclick="openTarjetasModal()">Mis tarjetas</button>
+      <button onclick="openTarjetasModal()">Mi tarjeta</button>
       <button onclick="openConfigModal()">Configuración</button>
       <button onclick="openPasswordModal()">Contraseña</button>
       <button onclick="logout()">Salir</button>
@@ -378,8 +378,9 @@
         <option value="4">4 por día</option>
         <option value="5">5 por día</option>
         <option value="10">10 por día</option>
+        <option value="0">Sin límite (ej: bares)</option>
       </select>
-      <div class="field-hint">Protege tu club de abusos. Para la mayoría de los negocios, 1 por día es lo ideal; un bar puede subirlo. Si un cliente real necesita más, lo sumás a mano desde su ficha.</div>
+      <div class="field-hint">Para la mayoría de los negocios, 1 por día es lo ideal. Un bar puede subirlo o dejarlo sin límite: igual hay que esperar el tiempo mínimo entre moneda y moneda, y el encargado controla cada una con los avisos.</div>
     </div>
     <div class="field">
       <label>Las monedas vencen si el cliente no vuelve en</label>
@@ -426,26 +427,16 @@
 <!-- Mis tarjetas -->
 <div class="modal-overlay" id="modalTarjetas">
   <div class="modal">
-    <h3>Mis tarjetas</h3>
-    <div class="modal-sub">Descargá tus QR para imprimirlos o compartirlos.</div>
+    <h3>Mi tarjeta del club</h3>
+    <div class="modal-sub">Descargá tu QR para imprimirlo.</div>
     <div class="tarjeta-box">
-      <h4>Tarjeta del mostrador</h4>
-      <p>Tus clientes la tocan con el celular o escanean el QR en cada compra para sumar su moneda. Si es su primera vez, ahí mismo se suman al club. Cada toque vale una sola moneda: recargar la página o reenviar el link no suma.</p>
+      <h4>Tarjeta del club</h4>
+      <p>Tus clientes la tocan con el celular o escanean el QR en cada compra. Si es su primera vez, ahí mismo se suman al club con su moneda de bienvenida; si ya son del club, suman su moneda. Cada toque vale una sola moneda: recargar la página o reenviar el link no suma.</p>
       <div class="qr-holder" id="qrPuntos"></div>
       <div class="link-mono" id="linkPuntos"></div>
       <div class="btn-row">
-        <button class="btn btn-secondary btn-sm" onclick="descargarQr('qrPuntos','qr-mostrador')">Descargar QR</button>
+        <button class="btn btn-secondary btn-sm" onclick="descargarQr('qrPuntos','qr-tarjeta-club')">Descargar QR</button>
         <button class="btn btn-secondary btn-sm" onclick="copiarTexto(document.getElementById('linkPuntos').textContent)">Copiar link</button>
-      </div>
-    </div>
-    <div class="tarjeta-box">
-      <h4>Link para sumarse al club</h4>
-      <p>Para afiches, Instagram o tu WhatsApp: tus clientes se inscriben (con su moneda de regalo) y después ven su tarjeta desde acá. No suma monedas.</p>
-      <div class="qr-holder" id="qrInscripcion"></div>
-      <div class="link-mono" id="linkInscripcion"></div>
-      <div class="btn-row">
-        <button class="btn btn-secondary btn-sm" onclick="descargarQr('qrInscripcion','qr-sumate-al-club')">Descargar QR</button>
-        <button class="btn btn-secondary btn-sm" onclick="copiarTexto(document.getElementById('linkInscripcion').textContent)">Copiar link</button>
       </div>
     </div>
     <div class="modal-actions">
@@ -698,7 +689,7 @@ function renderClientesList(){
     empty.style.display = 'block';
     empty.innerHTML = STATE.clientes.length
       ? '<div class="big">No hay clientes en este filtro</div>Probá con otro filtro o búsqueda.'
-      : '<div class="big">Todavía no tenés clientes</div>Apenas alguien toque tu tarjeta del mostrador o se sume con tu link, va a aparecer acá.';
+      : '<div class="big">Todavía no tenés clientes</div>Apenas alguien toque tu tarjeta del club, va a aparecer acá.';
     return;
   }
   empty.style.display = 'none';
@@ -1102,11 +1093,6 @@ function openTarjetasModal(){
     dibujarQr('qrPuntos', linkChip(me.slug_puntos, true));
     document.getElementById('linkPuntos').textContent = linkChip(me.slug_puntos, false);
   }
-  if(me.slug_inscripcion){
-    const link = `${baseUrl()}/fidelizacion-inscripcion.html?c=${encodeURIComponent(me.slug_inscripcion)}`;
-    dibujarQr('qrInscripcion', link);
-    document.getElementById('linkInscripcion').textContent = link;
-  }
   document.getElementById('modalTarjetas').classList.add('open');
 }
 // Descarga el QR listo para imprimir: con margen blanco (los lectores lo necesitan para
@@ -1172,7 +1158,7 @@ function filaActividad(a, nueva){
 function renderActividad(nuevosIds){
   const box = document.getElementById('actividadList');
   if(!ACT.lista.length){
-    box.innerHTML = '<div class="act-vacia">Todavía nadie sumó monedas hoy. Cuando alguien toque la tarjeta del mostrador, aparece acá al instante.</div>';
+    box.innerHTML = '<div class="act-vacia">Todavía nadie sumó monedas hoy. Cuando alguien toque la tarjeta del club, aparece acá al instante.</div>';
     return;
   }
   const nuevos = new Set(nuevosIds || []);
@@ -1258,7 +1244,7 @@ async function abrirAdvertir(tapId){
     reglas.textContent = 'Esta moneda ya fue advertida y anulada.';
     btn.style.display = 'none';
   } else if(!a.se_puede_advertir){
-    reglas.textContent = 'Las monedas de bienvenida no se advierten: cualquiera puede sumarse al club desde tu link.';
+    reglas.textContent = 'La moneda de bienvenida no se advierte: es la de la primera vez que el cliente se suma al club.';
     btn.style.display = 'none';
   } else {
     reglas.textContent = a.advertencias >= 1

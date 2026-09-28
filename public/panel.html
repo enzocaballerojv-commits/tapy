@@ -491,6 +491,7 @@
         <option value="4">4 por día</option>
         <option value="5">5 por día</option>
         <option value="10">10 por día</option>
+        <option value="0">Sin límite (ej: bares)</option>
       </select>
     </div>
     <div class="field">
@@ -512,10 +513,10 @@
       <input type="number" id="fidNuevoMonto" placeholder="Ej: 50000">
     </div>
 
-    <h3 style="font-size:14px;margin-top:14px;">Tarjeta del mostrador (NFC + QR)</h3>
-    <div class="modal-sub">Es la única tarjeta física del comercio: los clientes nuevos se inscriben con ella y los que ya son del club suman su moneda. Elegí un chip libre de tu stock, o dejá "Generar automáticamente" para crear una virtual. El link para redes y afiches se crea solo, sin usar stock.</div>
+    <h3 style="font-size:14px;margin-top:14px;">Tarjeta del club (NFC + QR)</h3>
+    <div class="modal-sub">Una sola tarjeta hace todo: inscribe a los clientes nuevos con su moneda de bienvenida y le suma la moneda a los que ya son del club. Elegí un chip libre de tu stock.</div>
     <div class="field">
-      <label>Chip para el mostrador</label>
+      <label>Chip</label>
       <select id="fidNuevoChipPuntos"></select>
     </div>
 
@@ -557,6 +558,7 @@
         <option value="4">4 por día</option>
         <option value="5">5 por día</option>
         <option value="10">10 por día</option>
+        <option value="0">Sin límite (ej: bares)</option>
       </select>
     </div>
     <div class="field">
@@ -798,8 +800,8 @@ function qrActionsHtml(c){
 }
 
 function fidelizacionBadgeHtml(c){
-  if (c.tipo === 'fidelizacion_inscripcion') return '<span class="badge badge-fidelizacion">Fidelización · Link para redes</span>';
-  if (c.tipo === 'fidelizacion_puntos') return '<span class="badge badge-fidelizacion">Fidelización · Mostrador</span>';
+  if (c.tipo === 'fidelizacion_inscripcion') return '<span class="badge badge-fidelizacion">Fidelización (link viejo)</span>';
+  if (c.tipo === 'fidelizacion_puntos') return '<span class="badge badge-fidelizacion">Fidelización</span>';
   return '';
 }
 
@@ -809,7 +811,7 @@ function rowHtml(c){
   return `
   <tr>
     <td class="chk-cell"><input type="checkbox" class="chip-checkbox" data-chipid="${c.id}" ${checked} onchange="toggleChipSelected(${c.id}, this.checked)"></td>
-    <td class="num-cell">${String(c.numero_lote).padStart(3,'0')}</td>
+    <td class="num-cell">${c.numero_lote!=null ? String(c.numero_lote).padStart(3,'0') : '<span class="small">virtual</span>'}</td>
     <td class="mono">${escHtml(c.slug)}</td>
     <td><span class="badge badge-${c.status}">${statusLabelOf(c)}</span>${fidelizacionBadgeHtml(c)}</td>
     <td>${c.distribuidor_nombre ? `<span class="mayorista-badge">${escHtml(c.distribuidor_nombre)}</span>` : '<span class="stock-dash">—</span>'}</td>
@@ -830,7 +832,7 @@ function cardHtml(c){
     <div class="chip-card-top">
       <label style="display:flex;align-items:center;gap:8px;">
         <input type="checkbox" class="chip-checkbox" ${checked} onchange="toggleChipSelected(${c.id}, this.checked)">
-        <div class="num-cell">#${String(c.numero_lote).padStart(3,'0')} <span class="mono">${c.slug}</span></div>
+        <div class="num-cell">${c.numero_lote!=null ? '#'+String(c.numero_lote).padStart(3,'0') : 'virtual'} <span class="mono">${c.slug}</span></div>
       </label>
       <span class="badge badge-${c.status}">${statusLabelOf(c)}</span>${fidelizacionBadgeHtml(c)}
     </div>
@@ -1388,8 +1390,8 @@ function refreshFidClientSelect(){
 }
 function refreshFidChipSelects(){
   const libres = STATE.fidChipsLibres || [];
-  const opciones = '<option value="">— Generar automáticamente (chip virtual) —</option>' +
-    libres.map(c=>`<option value="${c.id}">#${String(c.numero_lote||0).padStart(3,'0')} — ${c.slug}</option>`).join('');
+  const opciones = libres.map(c=>`<option value="${c.id}">${c.numero_lote!=null ? '#'+String(c.numero_lote).padStart(3,'0') : 'Sin número'} — ${c.slug}</option>`).join('') +
+    '<option value="">Sin chip impreso (tarjeta virtual, solo QR en pantalla)</option>';
   document.getElementById('fidNuevoChipPuntos').innerHTML = opciones;
 }
 function renderFidComerciosList(){
@@ -1413,11 +1415,9 @@ function renderFidComerciosList(){
         </div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <span class="field-hint" style="width:100%;margin:0;">Tarjeta del mostrador${f.numero_puntos!=null ? ' · chip #'+String(f.numero_puntos).padStart(3,'0') : ' · virtual'}</span>
-        <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="showQrFidComercio(${f.id}, 'PT')">Ver QR del mostrador</button>
-        <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="copiarLinkNfc('${f.slug_puntos}')">Copiar link NFC del mostrador</button>
-        <button class="btn btn-secondary btn-sm" ${f.slug_inscripcion?'':'disabled'} onclick="showQrFidComercio(${f.id}, 'IN')">QR para redes y afiches</button>
-        <button class="btn btn-secondary btn-sm" ${f.slug_inscripcion?'':'disabled'} onclick="copiarLinkNfc('${f.slug_inscripcion}')">Copiar link para redes</button>
+        <span class="field-hint" style="width:100%;margin:0;">Tarjeta del club${f.numero_puntos!=null ? ': chip #'+String(f.numero_puntos).padStart(3,'0') : ': virtual (sin chip impreso)'}</span>
+        <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="showQrFidComercio(${f.id}, 'PT')">Ver QR</button>
+        <button class="btn btn-secondary btn-sm" ${f.slug_puntos?'':'disabled'} onclick="copiarLinkNfc('${f.slug_puntos}')">Copiar link NFC</button>
         <button class="btn btn-danger btn-sm" onclick="eliminarFidComercio(${f.id})">Quitar de fidelización</button>
       </div>
     </div>
@@ -1463,7 +1463,7 @@ async function submitFidInscribir(){
   }
 
   const body = { client_id, usuario, password, niveles, monedas_por_nivel, horas_entre_sumas, validez_dias, tope_diario, monto_mensual };
-  if(chipPuntosId) body.chip_id = chipPuntosId;
+  if(chipPuntosId){ body.chip_id = chipPuntosId; body.chip_puntos_id = chipPuntosId; }
 
   try{
     await apiFetch('/api/fidelizacion/comercios', {
@@ -1471,7 +1471,7 @@ async function submitFidInscribir(){
       body: JSON.stringify(body)
     });
   }catch(e){ return; }
-  toast('Comercio inscripto en fidelización. Ya tiene su tarjeta del mostrador y su link para redes.');
+  toast('Comercio inscripto en fidelización. Ya tiene su tarjeta del club.');
   resetFidForm();
   await Promise.all([loadClients(), loadFidComercios(), loadFidChipsLibres()]);
   renderFidComerciosList();
@@ -1482,13 +1482,12 @@ async function submitFidInscribir(){
 function showQrFidComercio(id, tipo){
   const f = STATE.fidComercios.find(x=>x.id===id);
   if(!f) return;
-  if(tipo === 'IN') showQrFid(f.slug_inscripcion, 'Link para redes y afiches — ' + (f.client_name||''), `fid-${f.id}-redes`, 'IN');
-  else showQrFid(f.slug_puntos, 'Tarjeta del mostrador — ' + (f.client_name||''), `fid-${f.id}-mostrador`, 'PT');
+  showQrFid(f.slug_puntos, 'Tarjeta del club — ' + (f.client_name||''), `fid-${f.id}-tarjeta`, f.numero_puntos!=null ? String(f.numero_puntos).padStart(3,'0') : 'PT');
 }
 async function eliminarFidComercio(id){
   const fc = STATE.fidComercios.find(x=>x.id===id);
   const nombre = fc ? fc.client_name : 'este comercio';
-  if(!confirm(`¿Quitar a "${nombre}" de Fidelización? Se borran sus clientes, premios y cobros de este programa (la empresa en sí no se borra). Su tarjeta del mostrador (si es un chip impreso) vuelve a tu stock libre para reasignar.`)) return;
+  if(!confirm(`¿Quitar a "${nombre}" de Fidelización? Se borran sus clientes, premios y cobros de este programa (la empresa en sí no se borra). Su tarjeta (si es un chip impreso) vuelve a tu stock libre para reasignar.`)) return;
   try{ await apiFetch(`/api/fidelizacion/comercios/${id}`, {method:'DELETE'}); }catch(e){ return; }
   toast('Comercio quitado de fidelización. Su chip volvió a tu stock.');
   await Promise.all([loadFidComercios(), loadFidChipsLibres(), loadChips()]);
@@ -1509,8 +1508,9 @@ async function openFidConfigModal(comercioId){
   horasSel.value = horasVal;
   if(horasSel.value !== horasVal) horasSel.value = '4'; // valor custom no listado: mostramos el recomendado
   const topeSel = document.getElementById('fidConfigTopeDiario');
-  topeSel.value = String(f.tope_diario || 3);
-  if(topeSel.value !== String(f.tope_diario || 3)) topeSel.value = '3';
+  const topeActual = (f.tope_diario === null || f.tope_diario === undefined) ? 3 : f.tope_diario;
+  topeSel.value = String(topeActual);
+  if(topeSel.value !== String(topeActual)) topeSel.value = '3';
   const valSel = document.getElementById('fidConfigValidez');
   valSel.value = String(f.validez_dias);
   if(valSel.value !== String(f.validez_dias)){
