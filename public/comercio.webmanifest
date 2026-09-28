@@ -1,0 +1,15 @@
+{
+  "name": "Tapy: panel del club",
+  "short_name": "Tapy Club",
+  "description": "Panel del club de fidelidad de tu comercio, con avisos en cada moneda.",
+  "start_url": "/comercio.html",
+  "scope": "/comercio",
+  "display": "standalone",
+  "background_color": "#0d2f6e",
+  "theme_color": "#0d2f6e",
+  "lang": "es",
+  "icons": [
+    { "src": "/tapy-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/tapy-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
